@@ -1,0 +1,99 @@
+# project.yml — xcodegen project spec
+#
+# xcodegen reads this file and generates CameraCoach.xcodeproj.
+# Run:  brew install xcodegen   (first time only)
+#       xcodegen generate        (from the repo root)
+#
+# Why use xcodegen instead of committing the raw .xcodeproj?
+# The .xcodeproj/project.pbxproj file is thousands of lines of
+# generated XML with UUIDs for every file. Merge conflicts in it
+# are a nightmare. This YAML is the source of truth — readable,
+# diffable, and easy to modify when you add new files.
+
+name: CameraCoach
+
+options:
+  bundleIdPrefix: com.saifkhan
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true   # mirrors folder structure in Xcode navigator
+  defaultConfig: Debug
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"            # 1 = iPhone only
+    ENABLE_BITCODE: NO
+    DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+
+targets:
+  CameraCoach:
+    type: application
+    platform: iOS
+
+    # All source files under CameraCoach/ are included automatically.
+    # xcodegen walks the directory tree and adds every .swift, .mm,
+    # .cpp, .h, .hpp, .m file it finds.
+    sources:
+      - path: CameraCoach
+        excludes:
+          - "**/*.md"
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.saifkhan.CameraCoach
+        DEVELOPMENT_TEAM: ""               # Set this to your Apple Team ID in Xcode
+
+        # Bridging header: tells the Swift compiler where to find the
+        # Objective-C++ headers that Swift needs to call into the
+        # C++ pipeline. This is the glue that makes Swift → ObjC++ → C++ work.
+        SWIFT_OBJC_BRIDGING_HEADER: "CameraCoach/ImageProcessing/CameraCoach-Bridging-Header.h"
+
+        # C++17 for modern features (std::array, structured bindings,
+        # constexpr if). The image processing classes use these.
+        OTHER_CPLUSPLUSFLAGS: "-std=c++17"
+
+        # Required for AVFoundation, Vision, CoreMotion linking
+        OTHER_LDFLAGS: ""
+
+    # Info.plist is generated from these keys — no separate file needed.
+    # Each NSUsageDescription is shown to the user when the app first
+    # requests that permission. Apple rejects apps without these.
+    info:
+      path: CameraCoach/Info.plist
+      properties:
+        CFBundleDisplayName: CameraCoach
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait          # portrait only for MVP
+
+        # Camera: needed to display the live preview
+        NSCameraUsageDescription: >
+          CameraCoach needs camera access to guide your shots in real time.
+
+        # Microphone: needed for SFSpeechRecognizer live transcription
+        NSMicrophoneUsageDescription: >
+          CameraCoach needs microphone access so the teacher can record framing instructions.
+
+        # Speech recognition: on-device transcription of voice instructions
+        NSSpeechRecognitionUsageDescription: >
+          CameraCoach transcribes your framing instructions so the shooter can read them.
+
+        # Photos: to save the final guided shot
+        NSPhotoLibraryAddUsageDescription: >
+          CameraCoach saves your guided shots to your Photos library.
+
+    # Build phases — frameworks are linked automatically by xcodegen
+    # based on imports in source files. We list them explicitly here
+    # so the intent is clear and linking doesn't break on a clean build.
+    dependencies:
+      - sdk: AVFoundation.framework
+      - sdk: CoreMotion.framework
+      - sdk: Vision.framework
+      - sdk: Speech.framework
+      - sdk: Photos.framework
+      - sdk: ARKit.framework       # for LiDAR depth data (iPhone 17 Pro)
