@@ -1,7 +1,4 @@
-# Xcode
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcworkspace/xcshareddata/
+# Xcode build artifacts
 build/
 DerivedData/
 *.ipa
@@ -9,10 +6,13 @@ DerivedData/
 *.dSYM
 *.moved-aside
 xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/xcschemes/
 
-# The generated .xcodeproj is committed so teammates can open it
-# without running xcodegen. If you regenerate it locally, commit
-# the updated project.pbxproj.
+# Generated project — project.yml is the source of truth, run `xcodegen generate`
+*.xcodeproj/
+*.xcworkspace/
 
 # macOS
 .DS_Store
@@ -20,7 +20,7 @@ xcuserdata/
 .LSOverride
 ._*
 
-# CocoaPods (not used here but just in case)
+# CocoaPods
 Pods/
 Podfile.lock
 
@@ -31,3 +31,7 @@ Podfile.lock
 
 # Instruments
 *.trace
+
+# AI / planning files
+CLAUDE.md
+MVP_Plan.md
