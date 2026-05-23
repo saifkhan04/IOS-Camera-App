@@ -1,0 +1,33 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.moved-aside
+xcuserdata/
+
+# The generated .xcodeproj is committed so teammates can open it
+# without running xcodegen. If you regenerate it locally, commit
+# the updated project.pbxproj.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# CocoaPods (not used here but just in case)
+Pods/
+Podfile.lock
+
+# Swift Package Manager
+.build/
+.swiftpm/
+*.resolved
+
+# Instruments
+*.trace
