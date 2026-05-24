@@ -1,14 +1,16 @@
 // CameraManager.swift
 // Owns and configures the AVCaptureSession.
 //
-// Day 2 note — why we don't use sessionPreset:
-//   sessionPreset = .photo lets Apple pick the format automatically.
-//   On iPhone 17 Pro it often selects the 48 MP mode, which doesn't support
-//   simultaneous LiDAR depth delivery. Instead we enumerate the device's
-//   available formats, find the highest-resolution one that has
-//   supportedDepthDataFormats, and set it directly. Setting activeFormat
-//   manually causes AVFoundation to silently change the preset to
-//   .inputPriority — that's expected and fine.
+// Key Day 2 insight about LiDAR depth on iPhone Pro:
+//   The individual back cameras (wide, ultra-wide, telephoto) report zero
+//   supportedDepthDataFormats — they don't carry depth on their own.
+//   The depth-capable device is .builtInLiDARDepthCamera, a virtual device
+//   that pairs a YUV camera with the LiDAR scanner. Using it as the primary
+//   input gives us video AND depth from a single session input, no
+//   AVCaptureMultiCamSession needed.
+//
+//   Adding it alongside .builtInWideAngleCamera in a regular session fails —
+//   that requires multi-cam. Using it as the sole input works fine.
 
 import AVFoundation
 import Combine
@@ -59,27 +61,6 @@ class CameraManager: NSObject, ObservableObject {
     // MARK: - Configuration
 
     private func configure() {
-        // Enumerate every back camera device so we can see what's available.
-        let allBackDevices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [
-                .builtInWideAngleCamera,
-                .builtInUltraWideCamera,
-                .builtInTelephotoCamera,
-                .builtInLiDARDepthCamera,
-                .builtInTrueDepthCamera,
-                .builtInDualCamera,
-                .builtInDualWideCamera,
-                .builtInTripleCamera
-            ],
-            mediaType: nil,
-            position: .back
-        ).devices
-        print("📊 Back devices available:")
-        for dev in allBackDevices {
-            let depthCount = dev.formats.filter { !$0.supportedDepthDataFormats.isEmpty }.count
-            print("   \(dev.deviceType.rawValue) — formats: \(dev.formats.count), depth-capable: \(depthCount)")
-        }
-
         session.beginConfiguration()
 
         guard let device = addCameraInput() else {
@@ -87,25 +68,18 @@ class CameraManager: NSObject, ObservableObject {
             return
         }
 
-        addLiDARInput()
         addVideoOutput()
         addDepthOutput()
         selectDepthCapableFormat(for: device)
 
         session.commitConfiguration()
 
-        // Check connections AFTER commitConfiguration — connections are
-        // fully resolved once the session applies all pending changes.
         depthConnected = depthOutput.connection(with: .depthData) != nil
-        print("📊 depthOutput.connections count: \(depthOutput.connections.count)")
-        print("📊 depthOutput.connection(with: .depthData): \(String(describing: depthOutput.connection(with: .depthData)))")
         print(depthConnected
             ? "✅ CameraManager: Depth connection confirmed"
-            : "⚠️ CameraManager: Still no depth connection after format selection"
+            : "⚠️ CameraManager: No depth connection"
         )
 
-        // AVCaptureDataOutputSynchronizer crashes if any output it receives
-        // lacks a live connection. Only include depthOutput when it's connected.
         let syncOutputs: [AVCaptureOutput] = depthConnected
             ? [videoOutput, depthOutput]
             : [videoOutput]
@@ -113,23 +87,27 @@ class CameraManager: NSObject, ObservableObject {
         synchronizer?.setDelegate(self, queue: sessionQueue)
     }
 
-    // Returns the device so configure() can pass it to selectDepthCapableFormat.
+    // Try .builtInLiDARDepthCamera first — it's the virtual device that
+    // pairs a YUV camera with the LiDAR scanner and is the only back-camera
+    // device type that has non-empty supportedDepthDataFormats.
+    // Fall back to .builtInWideAngleCamera on devices without LiDAR.
     @discardableResult
     private func addCameraInput() -> AVCaptureDevice? {
-        guard let device = AVCaptureDevice.default(
-            .builtInWideAngleCamera, for: .video, position: .back
-        ) else {
-            print("⚠️ CameraManager: No back camera found")
-            return nil
+        let preferredTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInLiDARDepthCamera,
+            .builtInWideAngleCamera
+        ]
+        for type in preferredTypes {
+            guard let device = AVCaptureDevice.default(type, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  session.canAddInput(input)
+            else { continue }
+            session.addInput(input)
+            print("✅ CameraManager: Camera input added (\(type.rawValue))")
+            return device
         }
-        guard let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else {
-            print("⚠️ CameraManager: Could not add camera input")
-            return nil
-        }
-        session.addInput(input)
-        print("✅ CameraManager: Camera input added")
-        return device
+        print("⚠️ CameraManager: Could not add any camera input")
+        return nil
     }
 
     private func addVideoOutput() {
@@ -138,7 +116,6 @@ class CameraManager: NSObject, ObservableObject {
                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
         videoOutput.alwaysDiscardsLateVideoFrames = true
-        // No setSampleBufferDelegate — the synchronizer handles delivery.
         guard session.canAddOutput(videoOutput) else {
             print("⚠️ CameraManager: Cannot add video output")
             return
@@ -147,92 +124,41 @@ class CameraManager: NSObject, ObservableObject {
         print("✅ CameraManager: Video output added")
     }
 
-    // Try to add the LiDAR depth camera as a second input so that
-    // AVCaptureDepthDataOutput can connect to it. On iPhone 17 Pro the
-    // wide angle camera's formats report zero supportedDepthDataFormats
-    // but the dedicated LiDAR device provides depth data.
-    private func addLiDARInput() {
-        guard let lidar = AVCaptureDevice.default(
-            .builtInLiDARDepthCamera, for: .depthData, position: .back
-        ) else {
-            print("⚠️ CameraManager: builtInLiDARDepthCamera not found (for: .depthData)")
-            // Try .video media type as fallback
-            if let lidar2 = AVCaptureDevice.default(
-                .builtInLiDARDepthCamera, for: .video, position: .back
-            ) {
-                print("📊 Found LiDAR with for:.video — formats: \(lidar2.formats.count)")
-            } else {
-                print("⚠️ CameraManager: builtInLiDARDepthCamera not found at all")
-            }
-            return
-        }
-        guard let input = try? AVCaptureDeviceInput(device: lidar) else {
-            print("⚠️ CameraManager: Could not create LiDAR input")
-            return
-        }
-        guard session.canAddInput(input) else {
-            print("⚠️ CameraManager: Session cannot add LiDAR input (may need AVCaptureMultiCamSession)")
-            return
-        }
-        session.addInput(input)
-        print("✅ CameraManager: LiDAR depth camera input added")
-    }
-
     private func addDepthOutput() {
         depthOutput.isFilteringEnabled = true
         guard session.canAddOutput(depthOutput) else {
-            print("⚠️ CameraManager: Cannot add depth output (no LiDAR?)")
+            print("⚠️ CameraManager: Cannot add depth output")
             return
         }
         session.addOutput(depthOutput)
         print("✅ CameraManager: Depth output added")
     }
 
-    // Picks the highest-resolution video format that also supports depth data,
-    // then sets the matching depth format on the device.
-    //
-    // Why this is necessary:
-    //   AVCaptureDevice.formats lists every mode the sensor supports.
-    //   Each format has a supportedDepthDataFormats array — if it's empty,
-    //   that mode cannot deliver LiDAR depth alongside video. The 48 MP
-    //   ProRAW / HEIF format on iPhone 17 Pro typically has no depth formats.
-    //   We skip those and pick the best one that does.
+    // Pick the highest-resolution format on the device that also supports
+    // depth data delivery. On .builtInLiDARDepthCamera, 39 of 45 formats
+    // qualify. On .builtInWideAngleCamera, none do (falls through silently).
     private func selectDepthCapableFormat(for device: AVCaptureDevice) {
-        let allFormats = device.formats
-        print("📊 Total formats on device: \(allFormats.count)")
-
-        let depthCapable = allFormats.filter { !$0.supportedDepthDataFormats.isEmpty }
-        print("📊 Depth-capable formats: \(depthCapable.count)")
-
-        guard !depthCapable.isEmpty else {
-            print("⚠️ CameraManager: Device has no depth-capable formats")
-            return
+        let depthCapable = device.formats.filter {
+            !$0.supportedDepthDataFormats.isEmpty
         }
-
-        // Log a few depth-capable formats so we can see what's available.
-        for f in depthCapable.prefix(5) {
-            let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-            print("   depth-capable: \(d.width)×\(d.height), depthFormats: \(f.supportedDepthDataFormats.count)")
-        }
-
-        let best = depthCapable.max {
+        guard let best = depthCapable.max(by: {
             CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
-        }!
-
+        }) else {
+            print("⚠️ CameraManager: No depth-capable formats on this device")
+            return
+        }
         let bestDepth = best.supportedDepthDataFormats.max {
             CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
         }
-
         do {
             try device.lockForConfiguration()
             device.activeFormat = best
             if let bestDepth { device.activeDepthDataFormat = bestDepth }
             device.unlockForConfiguration()
-
-            let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-            print("✅ CameraManager: Active format → \(dims.width)×\(dims.height)")
+            let d = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
+            print("✅ CameraManager: Format set → \(d.width)×\(d.height) (depth-capable)")
         } catch {
             print("⚠️ CameraManager: Could not lock device for format selection: \(error)")
         }
@@ -257,29 +183,22 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         let faceRect = faceDetector.detectFace(in: pixelBuffer)
 
         var distance: Float? = nil
-        if let faceRect {
-            // Diagnose depth pipeline once per ~second (every 30 frames).
-            let raw = collection.synchronizedData(for: depthOutput)
-            if frameCount % 30 == 0 {
-                print("📊 depth raw: \(String(describing: type(of: raw))), faceRect: \(faceRect)")
-            }
-            if let syncedDepth = raw as? AVCaptureSynchronizedDepthData,
-               !syncedDepth.depthDataWasDropped {
-                distance = sampleDepth(
-                    from: syncedDepth.depthData,
-                    at: CGPoint(x: faceRect.midX, y: faceRect.midY)
-                )
-                if frameCount % 30 == 0 {
-                    print("📊 distance: \(String(describing: distance))")
-                }
-            }
+        if let faceRect,
+           let syncedDepth = collection
+               .synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData,
+           !syncedDepth.depthDataWasDropped
+        {
+            distance = sampleDepth(
+                from: syncedDepth.depthData,
+                at: CGPoint(x: faceRect.midX, y: faceRect.midY)
+            )
         }
-        frameCount += 1
 
         DispatchQueue.main.async { [weak self] in
             self?.faceNormRect     = faceRect
             self?.subjectDistance  = distance
         }
+        frameCount += 1
     }
 
     // MARK: - Depth sampling
