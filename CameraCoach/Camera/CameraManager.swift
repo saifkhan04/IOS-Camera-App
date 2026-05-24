@@ -32,6 +32,7 @@ class CameraManager: NSObject, ObservableObject {
     // MARK: - Private: Processing
 
     private let faceDetector = FaceDetector()
+    private var frameCount = 0
 
     // MARK: - Private: Threading
 
@@ -76,6 +77,8 @@ class CameraManager: NSObject, ObservableObject {
         // Check connections AFTER commitConfiguration — connections are
         // fully resolved once the session applies all pending changes.
         depthConnected = depthOutput.connection(with: .depthData) != nil
+        print("📊 depthOutput.connections count: \(depthOutput.connections.count)")
+        print("📊 depthOutput.connection(with: .depthData): \(String(describing: depthOutput.connection(with: .depthData)))")
         print(depthConnected
             ? "✅ CameraManager: Depth connection confirmed"
             : "⚠️ CameraManager: Still no depth connection after format selection"
@@ -144,22 +147,28 @@ class CameraManager: NSObject, ObservableObject {
     //   ProRAW / HEIF format on iPhone 17 Pro typically has no depth formats.
     //   We skip those and pick the best one that does.
     private func selectDepthCapableFormat(for device: AVCaptureDevice) {
-        // Filter to formats that can deliver depth.
-        let depthCapable = device.formats.filter {
-            !$0.supportedDepthDataFormats.isEmpty
-        }
+        let allFormats = device.formats
+        print("📊 Total formats on device: \(allFormats.count)")
+
+        let depthCapable = allFormats.filter { !$0.supportedDepthDataFormats.isEmpty }
+        print("📊 Depth-capable formats: \(depthCapable.count)")
+
         guard !depthCapable.isEmpty else {
             print("⚠️ CameraManager: Device has no depth-capable formats")
             return
         }
 
-        // Among depth-capable formats, prefer highest pixel width.
+        // Log a few depth-capable formats so we can see what's available.
+        for f in depthCapable.prefix(5) {
+            let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+            print("   depth-capable: \(d.width)×\(d.height), depthFormats: \(f.supportedDepthDataFormats.count)")
+        }
+
         let best = depthCapable.max {
             CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
         }!
 
-        // Among the depth formats for that video format, prefer highest width.
         let bestDepth = best.supportedDepthDataFormats.max {
             CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
@@ -172,7 +181,7 @@ class CameraManager: NSObject, ObservableObject {
             device.unlockForConfiguration()
 
             let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-            print("✅ CameraManager: Active format → \(dims.width)×\(dims.height) (depth-capable)")
+            print("✅ CameraManager: Active format → \(dims.width)×\(dims.height)")
         } catch {
             print("⚠️ CameraManager: Could not lock device for format selection: \(error)")
         }
@@ -197,16 +206,24 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         let faceRect = faceDetector.detectFace(in: pixelBuffer)
 
         var distance: Float? = nil
-        if let faceRect,
-           let syncedDepth = collection
-               .synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData,
-           !syncedDepth.depthDataWasDropped
-        {
-            distance = sampleDepth(
-                from: syncedDepth.depthData,
-                at: CGPoint(x: faceRect.midX, y: faceRect.midY)
-            )
+        if let faceRect {
+            // Diagnose depth pipeline once per ~second (every 30 frames).
+            let raw = collection.synchronizedData(for: depthOutput)
+            if frameCount % 30 == 0 {
+                print("📊 depth raw: \(String(describing: type(of: raw))), faceRect: \(faceRect)")
+            }
+            if let syncedDepth = raw as? AVCaptureSynchronizedDepthData,
+               !syncedDepth.depthDataWasDropped {
+                distance = sampleDepth(
+                    from: syncedDepth.depthData,
+                    at: CGPoint(x: faceRect.midX, y: faceRect.midY)
+                )
+                if frameCount % 30 == 0 {
+                    print("📊 distance: \(String(describing: distance))")
+                }
+            }
         }
+        frameCount += 1
 
         DispatchQueue.main.async { [weak self] in
             self?.faceNormRect     = faceRect
