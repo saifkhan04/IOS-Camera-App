@@ -39,6 +39,12 @@ class CameraManager: NSObject, ObservableObject {
     // Stored as a property so ARC keeps it alive for the session's lifetime.
     private var synchronizer: AVCaptureDataOutputSynchronizer?
 
+    // True only when depthOutput was added AND has a live connection.
+    // AVCaptureDataOutputSynchronizer crashes if any output it's given
+    // has no connection — this flag lets us exclude depth gracefully when
+    // the selected format doesn't support LiDAR delivery.
+    private var depthConnected = false
+
     // MARK: - Private: Processing
 
     // Reused every frame — see FaceDetector.swift for why.
@@ -75,12 +81,15 @@ class CameraManager: NSObject, ObservableObject {
         addVideoOutput()
         addDepthOutput()
 
-        // Synchronizer must be created AFTER both outputs are added.
-        // Passing both outputs tells it which streams to wait for before
-        // delivering a matched pair.
-        synchronizer = AVCaptureDataOutputSynchronizer(
-            dataOutputs: [videoOutput, depthOutput]
-        )
+        // Synchronizer requires every output it receives to already have a
+        // live connection to the session. The .photo preset can pick a format
+        // that doesn't support LiDAR depth, leaving depthOutput with no
+        // connection. We check depthConnected and only include depth when it's
+        // actually wired up — otherwise the initialiser throws a fatal error.
+        let syncOutputs: [AVCaptureOutput] = depthConnected
+            ? [videoOutput, depthOutput]
+            : [videoOutput]
+        synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: syncOutputs)
         synchronizer?.setDelegate(self, queue: sessionQueue)
 
         session.commitConfiguration()
@@ -118,16 +127,21 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     private func addDepthOutput() {
-        // isFilteringEnabled applies temporal smoothing to reduce
-        // frame-to-frame flicker in the depth values. Makes distance
-        // readings stable so the guidance text doesn't jitter.
         depthOutput.isFilteringEnabled = true
         guard session.canAddOutput(depthOutput) else {
             print("⚠️ CameraManager: Cannot add depth output (no LiDAR?)")
             return
         }
         session.addOutput(depthOutput)
-        print("✅ CameraManager: Depth output added (LiDAR active)")
+        // A connection exists only when the active format supports depth.
+        // The .photo preset may choose a high-resolution format (e.g. 48 MP)
+        // that doesn't deliver LiDAR data. We record whether we actually got
+        // a connection so the synchronizer can be built safely.
+        depthConnected = depthOutput.connection(with: .depthData) != nil
+        print(depthConnected
+            ? "✅ CameraManager: Depth output connected (LiDAR active)"
+            : "⚠️ CameraManager: Depth output added but no connection — format may not support depth"
+        )
     }
 }
 
