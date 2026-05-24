@@ -1,20 +1,14 @@
 // CameraManager.swift
 // Owns and configures the AVCaptureSession.
 //
-// Day 2 adds two major pieces on top of Day 1:
-//
-// 1. AVCaptureDataOutputSynchronizer
-//    Video frames and LiDAR depth frames arrive on different internal queues
-//    at slightly different times. If we processed them independently we could
-//    accidentally pair a video frame with a depth map from 33 ms earlier.
-//    The synchronizer watches both outputs, waits until it has a matched pair
-//    (same presentation timestamp), then delivers them together to a single
-//    delegate method. This replaces the individual setSampleBufferDelegate
-//    calls — the synchronizer takes over frame delivery entirely.
-//
-// 2. Face detection + depth sampling pipeline
-//    Each matched pair: detect face (Vision) → sample depth at face center
-//    (LiDAR) → publish results to SwiftUI on the main thread.
+// Day 2 note — why we don't use sessionPreset:
+//   sessionPreset = .photo lets Apple pick the format automatically.
+//   On iPhone 17 Pro it often selects the 48 MP mode, which doesn't support
+//   simultaneous LiDAR depth delivery. Instead we enumerate the device's
+//   available formats, find the highest-resolution one that has
+//   supportedDepthDataFormats, and set it directly. Setting activeFormat
+//   manually causes AVFoundation to silently change the preset to
+//   .inputPriority — that's expected and fine.
 
 import AVFoundation
 import Combine
@@ -25,8 +19,6 @@ class CameraManager: NSObject, ObservableObject {
 
     let session = AVCaptureSession()
 
-    // SwiftUI reads these. @Published triggers a re-render whenever they change.
-    // nil means "no face detected" or "no depth reading" for this frame.
     @Published var faceNormRect: CGRect?      // portrait, top-left origin, 0–1
     @Published var subjectDistance: Float?    // metres, from LiDAR
 
@@ -34,20 +26,11 @@ class CameraManager: NSObject, ObservableObject {
 
     private let videoOutput = AVCaptureVideoDataOutput()
     private let depthOutput = AVCaptureDepthDataOutput()
-
-    // Synchronizer is created after both outputs are added to the session.
-    // Stored as a property so ARC keeps it alive for the session's lifetime.
     private var synchronizer: AVCaptureDataOutputSynchronizer?
-
-    // True only when depthOutput was added AND has a live connection.
-    // AVCaptureDataOutputSynchronizer crashes if any output it's given
-    // has no connection — this flag lets us exclude depth gracefully when
-    // the selected format doesn't support LiDAR delivery.
     private var depthConnected = false
 
     // MARK: - Private: Processing
 
-    // Reused every frame — see FaceDetector.swift for why.
     private let faceDetector = FaceDetector()
 
     // MARK: - Private: Threading
@@ -76,38 +59,54 @@ class CameraManager: NSObject, ObservableObject {
 
     private func configure() {
         session.beginConfiguration()
-        session.sessionPreset = .photo
-        addCameraInput()
+
+        // No preset — we pick the format manually so we can guarantee
+        // depth support. See selectDepthCapableFormat below.
+        guard let device = addCameraInput() else {
+            session.commitConfiguration()
+            return
+        }
+
         addVideoOutput()
         addDepthOutput()
+        selectDepthCapableFormat(for: device)
 
-        // Synchronizer requires every output it receives to already have a
-        // live connection to the session. The .photo preset can pick a format
-        // that doesn't support LiDAR depth, leaving depthOutput with no
-        // connection. We check depthConnected and only include depth when it's
-        // actually wired up — otherwise the initialiser throws a fatal error.
+        session.commitConfiguration()
+
+        // Check connections AFTER commitConfiguration — connections are
+        // fully resolved once the session applies all pending changes.
+        depthConnected = depthOutput.connection(with: .depthData) != nil
+        print(depthConnected
+            ? "✅ CameraManager: Depth connection confirmed"
+            : "⚠️ CameraManager: Still no depth connection after format selection"
+        )
+
+        // AVCaptureDataOutputSynchronizer crashes if any output it receives
+        // lacks a live connection. Only include depthOutput when it's connected.
         let syncOutputs: [AVCaptureOutput] = depthConnected
             ? [videoOutput, depthOutput]
             : [videoOutput]
         synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: syncOutputs)
         synchronizer?.setDelegate(self, queue: sessionQueue)
-
-        session.commitConfiguration()
     }
 
-    private func addCameraInput() {
-        guard
-            let device = AVCaptureDevice.default(
-                .builtInWideAngleCamera, for: .video, position: .back
-            ),
-            let input = try? AVCaptureDeviceInput(device: device),
-            session.canAddInput(input)
-        else {
+    // Returns the device so configure() can pass it to selectDepthCapableFormat.
+    @discardableResult
+    private func addCameraInput() -> AVCaptureDevice? {
+        guard let device = AVCaptureDevice.default(
+            .builtInWideAngleCamera, for: .video, position: .back
+        ) else {
+            print("⚠️ CameraManager: No back camera found")
+            return nil
+        }
+        guard let input = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(input) else {
             print("⚠️ CameraManager: Could not add camera input")
-            return
+            return nil
         }
         session.addInput(input)
         print("✅ CameraManager: Camera input added")
+        return device
     }
 
     private func addVideoOutput() {
@@ -116,8 +115,7 @@ class CameraManager: NSObject, ObservableObject {
                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
         videoOutput.alwaysDiscardsLateVideoFrames = true
-        // setSampleBufferDelegate is intentionally NOT called here.
-        // The synchronizer takes over all frame delivery for this output.
+        // No setSampleBufferDelegate — the synchronizer handles delivery.
         guard session.canAddOutput(videoOutput) else {
             print("⚠️ CameraManager: Cannot add video output")
             return
@@ -133,15 +131,51 @@ class CameraManager: NSObject, ObservableObject {
             return
         }
         session.addOutput(depthOutput)
-        // A connection exists only when the active format supports depth.
-        // The .photo preset may choose a high-resolution format (e.g. 48 MP)
-        // that doesn't deliver LiDAR data. We record whether we actually got
-        // a connection so the synchronizer can be built safely.
-        depthConnected = depthOutput.connection(with: .depthData) != nil
-        print(depthConnected
-            ? "✅ CameraManager: Depth output connected (LiDAR active)"
-            : "⚠️ CameraManager: Depth output added but no connection — format may not support depth"
-        )
+        print("✅ CameraManager: Depth output added")
+    }
+
+    // Picks the highest-resolution video format that also supports depth data,
+    // then sets the matching depth format on the device.
+    //
+    // Why this is necessary:
+    //   AVCaptureDevice.formats lists every mode the sensor supports.
+    //   Each format has a supportedDepthDataFormats array — if it's empty,
+    //   that mode cannot deliver LiDAR depth alongside video. The 48 MP
+    //   ProRAW / HEIF format on iPhone 17 Pro typically has no depth formats.
+    //   We skip those and pick the best one that does.
+    private func selectDepthCapableFormat(for device: AVCaptureDevice) {
+        // Filter to formats that can deliver depth.
+        let depthCapable = device.formats.filter {
+            !$0.supportedDepthDataFormats.isEmpty
+        }
+        guard !depthCapable.isEmpty else {
+            print("⚠️ CameraManager: Device has no depth-capable formats")
+            return
+        }
+
+        // Among depth-capable formats, prefer highest pixel width.
+        let best = depthCapable.max {
+            CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
+            CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
+        }!
+
+        // Among the depth formats for that video format, prefer highest width.
+        let bestDepth = best.supportedDepthDataFormats.max {
+            CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
+            CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
+        }
+
+        do {
+            try device.lockForConfiguration()
+            device.activeFormat = best
+            if let bestDepth { device.activeDepthDataFormat = bestDepth }
+            device.unlockForConfiguration()
+
+            let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
+            print("✅ CameraManager: Active format → \(dims.width)×\(dims.height) (depth-capable)")
+        } catch {
+            print("⚠️ CameraManager: Could not lock device for format selection: \(error)")
+        }
     }
 }
 
@@ -149,14 +183,10 @@ class CameraManager: NSObject, ObservableObject {
 
 extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
 
-    // Called on sessionQueue for every matched video+depth pair.
     func dataOutputSynchronizer(
         _ synchronizer: AVCaptureDataOutputSynchronizer,
         didOutput collection: AVCaptureSynchronizedDataCollection
     ) {
-        // --- Extract video frame ---
-        // synchronizedData(for:) looks up the matching data for a specific
-        // output in this synchronized collection.
         guard
             let syncedVideo = collection
                 .synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
@@ -164,10 +194,8 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
             let pixelBuffer = CMSampleBufferGetImageBuffer(syncedVideo.sampleBuffer)
         else { return }
 
-        // --- Face detection (Vision, on sessionQueue) ---
         let faceRect = faceDetector.detectFace(in: pixelBuffer)
 
-        // --- LiDAR depth at face centre ---
         var distance: Float? = nil
         if let faceRect,
            let syncedDepth = collection
@@ -180,7 +208,6 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
             )
         }
 
-        // --- Publish to SwiftUI (must be on main thread) ---
         DispatchQueue.main.async { [weak self] in
             self?.faceNormRect     = faceRect
             self?.subjectDistance  = distance
@@ -189,23 +216,7 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
 
     // MARK: - Depth sampling
 
-    // Returns the average depth (metres) sampled from a 5×5 pixel patch
-    // centred on a normalised point, ignoring NaN and near-zero values.
-    //
-    // Why a patch?
-    //   LiDAR reports NaN for specular surfaces — hair, glasses, earrings.
-    //   A single pixel at the exact face centre often hits one of these.
-    //   Averaging a small neighbourhood smooths over those bad pixels.
-    //
-    // Coordinate note:
-    //   normalizedPoint comes from the Vision face rect (portrait space).
-    //   The depth map is in the sensor's native landscape orientation, so
-    //   an exact mapping requires a coordinate transform. For Day 2 we pass
-    //   portrait coords directly; the error is small for centre-frame faces
-    //   and imperceptible for the guidance text. Day 3 adds the exact transform.
     private func sampleDepth(from depthData: AVDepthData, at normalizedPoint: CGPoint) -> Float? {
-        // Convert to float32 depth (metres) if the hardware delivered a
-        // different format (e.g. float16 disparity on some configurations).
         let metersData = depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
         let map = metersData.depthDataMap
 
@@ -216,9 +227,6 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         let mapH = CVPixelBufferGetHeight(map)
         guard let base = CVPixelBufferGetBaseAddress(map) else { return nil }
 
-        // bytesPerRow can include hardware padding at the end of each row.
-        // Dividing by Float32's byte size gives the actual number of floats
-        // to skip to reach the next row — which may be larger than mapW.
         let rowStride = CVPixelBufferGetBytesPerRow(map) / MemoryLayout<Float32>.size
         let floats = base.assumingMemoryBound(to: Float32.self)
 
