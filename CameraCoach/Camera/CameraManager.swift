@@ -59,15 +59,35 @@ class CameraManager: NSObject, ObservableObject {
     // MARK: - Configuration
 
     private func configure() {
+        // Enumerate every back camera device so we can see what's available.
+        let allBackDevices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInWideAngleCamera,
+                .builtInUltraWideCamera,
+                .builtInTelephotoCamera,
+                .builtInLiDARDepthCamera,
+                .builtInTrueDepthCamera,
+                .builtInDualCamera,
+                .builtInDualWideCamera,
+                .builtInTripleCamera
+            ],
+            mediaType: nil,
+            position: .back
+        ).devices
+        print("📊 Back devices available:")
+        for dev in allBackDevices {
+            let depthCount = dev.formats.filter { !$0.supportedDepthDataFormats.isEmpty }.count
+            print("   \(dev.deviceType.rawValue) — formats: \(dev.formats.count), depth-capable: \(depthCount)")
+        }
+
         session.beginConfiguration()
 
-        // No preset — we pick the format manually so we can guarantee
-        // depth support. See selectDepthCapableFormat below.
         guard let device = addCameraInput() else {
             session.commitConfiguration()
             return
         }
 
+        addLiDARInput()
         addVideoOutput()
         addDepthOutput()
         selectDepthCapableFormat(for: device)
@@ -125,6 +145,37 @@ class CameraManager: NSObject, ObservableObject {
         }
         session.addOutput(videoOutput)
         print("✅ CameraManager: Video output added")
+    }
+
+    // Try to add the LiDAR depth camera as a second input so that
+    // AVCaptureDepthDataOutput can connect to it. On iPhone 17 Pro the
+    // wide angle camera's formats report zero supportedDepthDataFormats
+    // but the dedicated LiDAR device provides depth data.
+    private func addLiDARInput() {
+        guard let lidar = AVCaptureDevice.default(
+            .builtInLiDARDepthCamera, for: .depthData, position: .back
+        ) else {
+            print("⚠️ CameraManager: builtInLiDARDepthCamera not found (for: .depthData)")
+            // Try .video media type as fallback
+            if let lidar2 = AVCaptureDevice.default(
+                .builtInLiDARDepthCamera, for: .video, position: .back
+            ) {
+                print("📊 Found LiDAR with for:.video — formats: \(lidar2.formats.count)")
+            } else {
+                print("⚠️ CameraManager: builtInLiDARDepthCamera not found at all")
+            }
+            return
+        }
+        guard let input = try? AVCaptureDeviceInput(device: lidar) else {
+            print("⚠️ CameraManager: Could not create LiDAR input")
+            return
+        }
+        guard session.canAddInput(input) else {
+            print("⚠️ CameraManager: Session cannot add LiDAR input (may need AVCaptureMultiCamSession)")
+            return
+        }
+        session.addInput(input)
+        print("✅ CameraManager: LiDAR depth camera input added")
     }
 
     private func addDepthOutput() {
