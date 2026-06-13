@@ -48,6 +48,29 @@ struct ContentView: View {
 
                 VStack(spacing: 6) {
 
+                    // ── Live histogram (C++) ──────────────────────────────
+                    if let hist = cameraManager.histogram {
+                        HistogramView(bins: hist)
+                            .frame(height: 44)
+                    }
+
+                    // ── Brightness + contrast (C++) ───────────────────────
+                    HStack(spacing: 12) {
+                        if let b = cameraManager.brightness {
+                            // Show as a 0–100% exposure read for intuition.
+                            Text("Lum: \(b / 255 * 100, specifier: "%.0f")%")
+                        } else {
+                            Text("Lum: —").foregroundColor(.white.opacity(0.5))
+                        }
+                        if let c = cameraManager.contrast {
+                            Text("Contrast: \(c, specifier: "%.0f")")
+                        }
+                    }
+
+                    Divider()
+                        .background(Color.white.opacity(0.4))
+                        .padding(.vertical, 2)
+
                     // ── Subject distance (LiDAR) ──────────────────────────
                     // Green when reading, dimmed dash when no face or LiDAR
                     // returns NaN (hair, glasses on the face centre pixel).
@@ -83,5 +106,39 @@ struct ContentView: View {
         .onDisappear {
             motionManager.stop()
         }
+    }
+}
+
+// MARK: - HistogramView
+
+// Draws the 256-bin luminance histogram as a filled curve. Each bin value
+// is already normalised to [0, 1] by the C++ side (1.0 = tallest bin), so we
+// just map bin index → x and value → bar height.
+struct HistogramView: View {
+    let bins: [Float]
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard !bins.isEmpty else { return }
+            let barWidth = size.width / CGFloat(bins.count)
+
+            // Build one filled path spanning all bins: across the bottom,
+            // up and over each bin's height, then close. Drawing a single
+            // path is far cheaper than stroking 256 separate rectangles.
+            var path = Path()
+            path.move(to: CGPoint(x: 0, y: size.height))
+            for (i, value) in bins.enumerated() {
+                let x = CGFloat(i) * barWidth
+                let y = size.height - CGFloat(value) * size.height
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+            path.addLine(to: CGPoint(x: size.width, y: size.height))
+            path.closeSubpath()
+
+            ctx.fill(path, with: .color(.white.opacity(0.8)))
+        }
+        // Backdrop so the curve reads clearly over a bright camera feed.
+        .background(Color.black.opacity(0.3))
+        .cornerRadius(4)
     }
 }

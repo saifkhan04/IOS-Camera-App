@@ -21,6 +21,28 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// ── Day 3: Frame analysis result ──────────────────────────────────────
+// A plain Objective-C value object carrying the C++ results back to Swift.
+// It holds only Foundation types so Swift can read it directly — the C++
+// structs (LuminanceStats, the histogram array) never cross into Swift.
+@interface FrameStats : NSObject
+
+// Mean luma, 0–255. ~128 is a well-exposed mid-tone; near 0 is too dark,
+// near 255 is blown out.
+@property (nonatomic, readonly) float averageBrightness;
+
+// Standard deviation of luma, ~0–127. Our proxy for contrast.
+@property (nonatomic, readonly) float contrast;
+
+// 256 normalised histogram bins as packed Float32 in the range [0, 1],
+// where 1.0 is the tallest bin. Packed into NSData rather than an
+// NSArray<NSNumber*> on purpose: an array would box 256 floats into 256
+// heap objects every single frame (256 × 30fps = 7680 allocations/sec).
+// NSData is one contiguous buffer Swift reads with zero per-element boxing.
+@property (nonatomic, readonly) NSData *histogram;
+
+@end
+
 @interface ImageProcessor : NSObject
 
 // ── Day 1: Bridge verification ────────────────────────────────────────
@@ -33,6 +55,16 @@ NS_ASSUME_NONNULL_BEGIN
 //   - The linker found all the symbols
 // Once this works, we never need to second-guess the bridge again.
 + (NSInteger)add:(NSInteger)a to:(NSInteger)b;
+
+// ── Day 3: Live luminance + histogram ─────────────────────────────────
+// Reads the Y (luma) plane of a YCbCr 4:2:0 pixel buffer and returns
+// brightness, contrast, and a normalised histogram. Returns nil if the
+// pixel buffer can't be locked or isn't a biplanar YCbCr format.
+//
+// The CVPixelBuffer comes straight from the camera's video output. This
+// method handles all the locking and plane-pointer arithmetic so the C++
+// side just receives a clean (pointer, width, height, stride) tuple.
++ (nullable FrameStats *)analyzeFrame:(CVPixelBufferRef)pixelBuffer;
 
 @end
 

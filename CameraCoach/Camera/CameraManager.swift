@@ -24,6 +24,11 @@ class CameraManager: NSObject, ObservableObject {
     @Published var faceNormRect: CGRect?      // portrait, top-left origin, 0–1
     @Published var subjectDistance: Float?    // metres, from LiDAR
 
+    // Day 3: live image statistics computed in C++ from the Y plane.
+    @Published var brightness: Float?         // mean luma, 0–255
+    @Published var contrast: Float?           // std dev of luma
+    @Published var histogram: [Float]?        // 256 normalised bins, 0–1
+
     // MARK: - Private: Outputs
 
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -182,6 +187,20 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
 
         let faceRect = faceDetector.detectFace(in: pixelBuffer)
 
+        // Day 3: run the C++ luminance + histogram pipeline on this frame.
+        // analyzeFrame locks the buffer, reads the Y plane, and returns stats.
+        let stats = ImageProcessor.analyzeFrame(pixelBuffer)
+        let frameBrightness = stats?.averageBrightness
+        let frameContrast   = stats?.contrast
+        // The histogram arrives as NSData holding 256 packed Float32 values.
+        // unsafeBytes gives a typed view; Array(...) copies them into a Swift
+        // [Float] we can hand to SwiftUI safely.
+        let frameHistogram: [Float]? = stats.map { s in
+            s.histogram.withUnsafeBytes { raw in
+                Array(raw.bindMemory(to: Float.self))
+            }
+        }
+
         var distance: Float? = nil
         if let faceRect,
            let syncedDepth = collection
@@ -197,6 +216,9 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.faceNormRect     = faceRect
             self?.subjectDistance  = distance
+            self?.brightness       = frameBrightness
+            self?.contrast         = frameContrast
+            self?.histogram        = frameHistogram
         }
         frameCount += 1
     }
