@@ -99,6 +99,7 @@ targets:
     # so the intent is clear and linking doesn't break on a clean build.
     dependencies:
       - sdk: AVFoundation.framework
+      - sdk: AVKit.framework       # AVCaptureEventInteraction (Camera Control button)
       - sdk: CoreMotion.framework
       - sdk: Vision.framework
       - sdk: Speech.framework

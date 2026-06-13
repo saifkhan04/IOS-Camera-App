@@ -23,6 +23,9 @@ struct CameraPreviewView: UIViewRepresentable {
     // normalised face coordinates to screen points for the overlay.
     var onLayerReady: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
 
+    // Day 4: fired when the physical Camera Control button is pressed.
+    var onCameraControl: (() -> Void)? = nil
+
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
         view.previewLayer.session = session
@@ -33,6 +36,11 @@ struct CameraPreviewView: UIViewRepresentable {
         // Fire the callback so ContentView can store the layer reference.
         // The layer exists now, though its final bounds are set after layout.
         onLayerReady?(view.previewLayer)
+
+        // Attach the Camera Control button interaction, if a handler was given.
+        if let onCameraControl {
+            view.cameraControlHandler.attach(to: view, onPress: onCameraControl)
+        }
         return view
     }
 
@@ -56,4 +64,7 @@ class PreviewUIView: UIView {
     var previewLayer: AVCaptureVideoPreviewLayer {
         layer as! AVCaptureVideoPreviewLayer
     }
+
+    // Owns the Camera Control interaction so it stays alive with the view.
+    let cameraControlHandler = CameraControlHandler()
 }

@@ -65,7 +65,28 @@ class CameraManager: NSObject, ObservableObject {
 
     // MARK: - Configuration
 
+    // Assembles a FrameState from the latest published readings plus the
+    // orientation passed in (orientation lives in MotionManager, the rest
+    // here). Used by Teacher Mode to snapshot the reference on button press.
+    // Falls back to frame-centre / zero when a face or depth isn't available.
+    func currentFrameState(pitch: Float, roll: Float, yaw: Float) -> FrameState {
+        FrameState(
+            pitch: pitch,
+            roll: roll,
+            yaw: yaw,
+            faceX: Float(faceNormRect?.midX ?? 0.5),
+            faceY: Float(faceNormRect?.midY ?? 0.5),
+            depthMeters: subjectDistance ?? 0,
+            luminance: brightness ?? 0
+        )
+    }
+
     private func configure() {
+        // Don't let the capture session seize the app's audio session — the
+        // voice recorder (SFSpeechRecognizer) needs to own it while recording.
+        // Our session has no audio input, so it has no reason to manage it.
+        session.automaticallyConfiguresApplicationAudioSession = false
+
         session.beginConfiguration()
 
         guard let device = addCameraInput() else {
