@@ -44,7 +44,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.saifkhan.CameraCoach
-        DEVELOPMENT_TEAM: ""               # Set this to your Apple Team ID in Xcode
+        # Apple Team ID, baked in so `xcodegen generate` no longer wipes it.
+        # Found via: security find-identity -v -p codesigning
+        # (the 10-char code in parentheses). With a personal/free account the
+        # signing identity's code IS the team ID.
+        DEVELOPMENT_TEAM: "Y54VJGTWH9"
+        CODE_SIGN_STYLE: Automatic         # let Xcode manage the provisioning profile
 
         # Bridging header: tells the Swift compiler where to find the
         # Objective-C++ headers that Swift needs to call into the
