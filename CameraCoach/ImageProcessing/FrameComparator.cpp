@@ -69,20 +69,26 @@ GuidanceResult FrameComparator::compare(const FrameState& ref, const FrameState&
         problems.push_back({2, msg, ArrowDir::None, norm(std::fabs(dDepth), 1.0f)});
     }
 
-    // Priority 3 — Vertical framing (faceY). Subject too high => lower camera.
+    // Priority 3 — Vertical framing (faceY).
+    // dFaceY < 0 => the face sits HIGHER in the frame than the reference.
+    // To bring it back down you raise/aim the camera UP (the subject then
+    // moves down in the frame). So: too high => "Raise the camera".
     if (std::fabs(dFaceY) > POSITION_THRESHOLD) {
-        if (dFaceY < 0)  // current face is higher in frame than reference
-            problems.push_back({3, "Lower the camera", ArrowDir::Down, norm(std::fabs(dFaceY), 0.3f)});
-        else
+        if (dFaceY < 0)  // face too high in frame
             problems.push_back({3, "Raise the camera", ArrowDir::Up, norm(std::fabs(dFaceY), 0.3f)});
+        else             // face too low in frame
+            problems.push_back({3, "Lower the camera", ArrowDir::Down, norm(std::fabs(dFaceY), 0.3f)});
     }
 
-    // Priority 4 — Horizontal framing (faceX). Subject to the right => pan left.
+    // Priority 4 — Horizontal framing (faceX).
+    // dFaceX > 0 => the face sits to the RIGHT of the reference. Moving/aiming
+    // the camera to the right shifts the subject left in the frame, back toward
+    // target. So: too far right => "Move camera right".
     if (std::fabs(dFaceX) > POSITION_THRESHOLD) {
-        if (dFaceX > 0)
-            problems.push_back({4, "Move camera left", ArrowDir::Left, norm(std::fabs(dFaceX), 0.3f)});
-        else
+        if (dFaceX > 0)  // face too far right
             problems.push_back({4, "Move camera right", ArrowDir::Right, norm(std::fabs(dFaceX), 0.3f)});
+        else             // face too far left
+            problems.push_back({4, "Move camera left", ArrowDir::Left, norm(std::fabs(dFaceX), 0.3f)});
     }
 
     // Priority 5 — Roll (left/right tilt — the crooked-horizon axis).

@@ -176,15 +176,20 @@ struct TeacherModeView: View {
     private var guidancePanel: some View {
         VStack(spacing: 10) {
             if let g = liveGuidance {
+                // One clear action at a time. The engine works in a fixed
+                // priority order, so as you resolve each step the next appears
+                // — leading you in sequence to the shot.
                 Text(g.primaryMessage)
-                    .font(.title2).bold()
+                    .font(.title).bold()
                     .foregroundColor(g.isAligned ? .green : .white)
                     .multilineTextAlignment(.center)
 
-                if let secondary = g.secondaryMessage {
-                    Text(secondary)
-                        .font(.callout)
-                        .foregroundColor(.white.opacity(0.8))
+                // The next step, shown faintly so you can see the path ahead
+                // without it competing with the current action.
+                if !g.isAligned, let secondary = g.secondaryMessage {
+                    Text("then \(secondary.lowercasedFirstLetter)")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.55))
                 }
 
                 ProgressView(value: Double(max(0, min(1, g.matchScore))))
@@ -263,4 +268,12 @@ struct TeacherModeView: View {
         show("tilted",    FrameState(pitch: 0, roll: 0.2, yaw: 0, faceX: 0.5, faceY: 0.5, depthMeters: 1.0, luminance: 128))
     }
     #endif
+}
+
+private extension String {
+    // "Move camera left" -> "move camera left", for the "then …" hint.
+    var lowercasedFirstLetter: String {
+        guard let first else { return self }
+        return first.lowercased() + dropFirst()
+    }
 }
