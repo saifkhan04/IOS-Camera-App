@@ -45,10 +45,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.saifkhan.CameraCoach
         # Apple Team ID, baked in so `xcodegen generate` no longer wipes it.
-        # Found via: security find-identity -v -p codesigning
-        # (the 10-char code in parentheses). With a personal/free account the
-        # signing identity's code IS the team ID.
-        DEVELOPMENT_TEAM: "Y54VJGTWH9"
+        # The Team ID is the OU (Organizational Unit) field of the signing cert,
+        # NOT the code in parentheses from find-identity. Get it with:
+        #   security find-certificate -c "Apple Development: <email>" -p \
+        #     | openssl x509 -noout -subject
+        # → subject=...,OU=BG9TQ835ZT,O=Saif Khan,...  (OU is the Team ID)
+        DEVELOPMENT_TEAM: "BG9TQ835ZT"
         CODE_SIGN_STYLE: Automatic         # let Xcode manage the provisioning profile
 
         # Bridging header: tells the Swift compiler where to find the
