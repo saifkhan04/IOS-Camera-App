@@ -43,6 +43,40 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+// ── Day 5: Guidance engine bridge types ───────────────────────────────
+// A plain C struct mirroring the C++ cc::FrameState. Because it's a C struct
+// in a header the bridging header imports, Swift sees it directly with a
+// memberwise initialiser — no Objective-C wrapper object needed for input.
+typedef struct {
+    float pitch;
+    float roll;
+    float yaw;
+    float faceX;
+    float faceY;
+    float depthMeters;
+    float luminance;
+} CCFrameState;
+
+// Direction for the on-screen arrow. NS_ENUM bridges to Swift as a typed enum.
+typedef NS_ENUM(NSInteger, CCArrowDirection) {
+    CCArrowDirectionNone = 0,
+    CCArrowDirectionUp,
+    CCArrowDirectionDown,
+    CCArrowDirectionLeft,
+    CCArrowDirectionRight
+};
+
+// The result object Swift reads. Carries the C++ comparison output across the
+// bridge using only Foundation types.
+@interface CCGuidanceResult : NSObject
+@property (nonatomic, readonly) float matchScore;            // 0..1
+@property (nonatomic, readonly) NSString *primaryMessage;
+@property (nonatomic, readonly, nullable) NSString *secondaryMessage;
+@property (nonatomic, readonly) CCArrowDirection arrowDirection;
+@property (nonatomic, readonly) float arrowMagnitude;        // 0..1
+@property (nonatomic, readonly) BOOL isAligned;
+@end
+
 @interface ImageProcessor : NSObject
 
 // ── Day 1: Bridge verification ────────────────────────────────────────
@@ -65,6 +99,12 @@ NS_ASSUME_NONNULL_BEGIN
 // method handles all the locking and plane-pointer arithmetic so the C++
 // side just receives a clean (pointer, width, height, stride) tuple.
 + (nullable FrameStats *)analyzeFrame:(CVPixelBufferRef)pixelBuffer;
+
+// ── Day 5: Frame comparison / guidance ────────────────────────────────
+// Compares the shooter's current frame against the teacher's reference and
+// returns the guidance to show. All logic runs in C++ (FrameComparator).
++ (CCGuidanceResult *)compareReference:(CCFrameState)reference
+                               current:(CCFrameState)current;
 
 @end
 

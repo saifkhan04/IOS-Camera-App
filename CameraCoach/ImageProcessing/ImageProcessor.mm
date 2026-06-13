@@ -17,6 +17,7 @@
 #include "MathBridge.hpp"
 #include "HistogramEngine.hpp"
 #include "LuminanceAnalyzer.hpp"
+#include "FrameComparator.hpp"
 
 // ── FrameStats ────────────────────────────────────────────────────────
 // The @property declarations in the header are readonly. We redeclare them
@@ -29,6 +30,19 @@
 @end
 
 @implementation FrameStats
+@end
+
+// ── CCGuidanceResult ──────────────────────────────────────────────────
+@interface CCGuidanceResult ()
+@property (nonatomic, readwrite) float matchScore;
+@property (nonatomic, readwrite) NSString *primaryMessage;
+@property (nonatomic, readwrite, nullable) NSString *secondaryMessage;
+@property (nonatomic, readwrite) CCArrowDirection arrowDirection;
+@property (nonatomic, readwrite) float arrowMagnitude;
+@property (nonatomic, readwrite) BOOL isAligned;
+@end
+
+@implementation CCGuidanceResult
 @end
 
 @implementation ImageProcessor
@@ -107,6 +121,45 @@
     result.histogram         = [NSData dataWithBytes:normalised
                                               length:sizeof(normalised)];
     return result;
+}
+
+// ── Day 5: Frame comparison / guidance ────────────────────────────────
++ (CCGuidanceResult *)compareReference:(CCFrameState)reference
+                               current:(CCFrameState)current {
+    // Translate the C structs into C++ structs (field-for-field, same layout).
+    cc::FrameState ref;
+    ref.pitch = reference.pitch; ref.roll = reference.roll; ref.yaw = reference.yaw;
+    ref.faceX = reference.faceX; ref.faceY = reference.faceY;
+    ref.depthMeters = reference.depthMeters; ref.luminance = reference.luminance;
+
+    cc::FrameState cur;
+    cur.pitch = current.pitch; cur.roll = current.roll; cur.yaw = current.yaw;
+    cur.faceX = current.faceX; cur.faceY = current.faceY;
+    cur.depthMeters = current.depthMeters; cur.luminance = current.luminance;
+
+    cc::GuidanceResult g = cc::FrameComparator::compare(ref, cur);
+
+    // Map the C++ arrow enum to the bridged Objective-C enum.
+    CCArrowDirection arrow = CCArrowDirectionNone;
+    switch (g.arrowDirection) {
+        case cc::ArrowDir::Up:    arrow = CCArrowDirectionUp;    break;
+        case cc::ArrowDir::Down:  arrow = CCArrowDirectionDown;  break;
+        case cc::ArrowDir::Left:  arrow = CCArrowDirectionLeft;  break;
+        case cc::ArrowDir::Right: arrow = CCArrowDirectionRight; break;
+        case cc::ArrowDir::None:  arrow = CCArrowDirectionNone;  break;
+    }
+
+    CCGuidanceResult* out = [[CCGuidanceResult alloc] init];
+    out.matchScore       = g.matchScore;
+    // std::string -> NSString (UTF-8). Empty secondary becomes nil.
+    out.primaryMessage   = [NSString stringWithUTF8String:g.primaryMessage.c_str()];
+    out.secondaryMessage = g.secondaryMessage.empty()
+        ? nil
+        : [NSString stringWithUTF8String:g.secondaryMessage.c_str()];
+    out.arrowDirection   = arrow;
+    out.arrowMagnitude   = g.arrowMagnitude;
+    out.isAligned        = g.isAligned;
+    return out;
 }
 
 @end

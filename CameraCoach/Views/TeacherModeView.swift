@@ -3,16 +3,11 @@
 // all in with one press of the Camera Control button (or the on-screen
 // button). The captured ReferenceFrame is what the shooter will chase.
 //
-// This view owns the three live data sources:
-//   CameraManager  — video + face + LiDAR depth + C++ luminance/histogram
-//   MotionManager  — pitch/roll/yaw
-//   VoiceRecorder  — on-device transcription of spoken instructions
-//
-// Capture flow:
-//   press Camera Control / "Capture Reference"
-//     → snapshot the current FrameState (CameraManager.currentFrameState)
-//     → bundle it with the selected mode + transcript into a ReferenceFrame
-//     → haptic + show the saved-reference card
+// Day 5 addition: once a reference is captured, this screen flips into a LIVE
+// GUIDANCE PREVIEW — it runs the C++ FrameComparator every frame against the
+// saved reference and shows the resulting message + match score. This is a
+// stand-in to prove the guidance engine works end-to-end on device; Day 6
+// builds the real Shooter Mode UI (arrows, match ring, haptics, auto-capture).
 
 import SwiftUI
 
@@ -51,38 +46,55 @@ struct TeacherModeView: View {
             VStack {
                 topBar
                 Spacer()
-                bottomControls
+                // Before a reference exists: capture controls.
+                // After: live guidance preview against that reference.
+                if capturedReference == nil {
+                    captureControls
+                } else {
+                    guidancePanel
+                }
             }
             .padding(.horizontal, 16)
-
-            // --- Saved reference card (modal-ish overlay) ---
-            if let ref = capturedReference {
-                referenceCard(ref)
-            }
         }
         .onAppear {
             cameraManager.start()
             motionManager.start()
             voiceRecorder.requestPermissions()
+            #if DEBUG
+            runGuidanceSelfTest()
+            #endif
         }
         .onDisappear {
             motionManager.stop()
         }
     }
 
+    // MARK: - Live guidance (Day 5)
+
+    // Recomputed on every re-render (motion publishes at 30Hz), so the banner
+    // updates live as the phone moves. nil until a reference is captured.
+    private var liveGuidance: GuidanceResult? {
+        guard let ref = capturedReference else { return nil }
+        let live = cameraManager.currentFrameState(
+            pitch: Float(motionManager.pitchRad),
+            roll:  Float(motionManager.rollRad),
+            yaw:   Float(motionManager.yawRad)
+        )
+        return Guidance.compare(reference: ref.state, current: live)
+    }
+
     // MARK: - Top bar: mode picker + live stats
 
     private var topBar: some View {
         VStack(spacing: 8) {
-            // Capture mode (Photo / Portrait / Live)
             Picker("Mode", selection: $selectedMode) {
                 ForEach(CameraMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(capturedReference != nil)   // mode is locked once captured
 
-            // Compact live readouts
             HStack(spacing: 14) {
                 stat("Dist", cameraManager.subjectDistance.map { String(format: "%.1fm", $0) } ?? "—")
                 stat("Lum", cameraManager.brightness.map { String(format: "%.0f%%", $0 / 255 * 100) } ?? "—")
@@ -109,15 +121,12 @@ struct TeacherModeView: View {
         }
     }
 
-    // MARK: - Bottom controls: voice + capture
+    // MARK: - Capture controls (no reference yet)
 
-    private var bottomControls: some View {
+    private var captureControls: some View {
         VStack(spacing: 12) {
-            // Live transcript (only while there's something to show)
             if !voiceRecorder.transcript.isEmpty || voiceRecorder.isRecording {
-                Text(voiceRecorder.transcript.isEmpty
-                     ? "Listening…"
-                     : voiceRecorder.transcript)
+                Text(voiceRecorder.transcript.isEmpty ? "Listening…" : voiceRecorder.transcript)
                     .font(.callout)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -133,21 +142,17 @@ struct TeacherModeView: View {
             }
 
             HStack(spacing: 16) {
-                // Record / stop voice instructions
                 Button(action: voiceRecorder.toggle) {
-                    Label(
-                        voiceRecorder.isRecording ? "Stop" : "Record",
-                        systemImage: voiceRecorder.isRecording ? "stop.circle.fill" : "mic.circle.fill"
-                    )
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(voiceRecorder.isRecording ? Color.red : Color.white.opacity(0.2))
-                    .cornerRadius(12)
+                    Label(voiceRecorder.isRecording ? "Stop" : "Record",
+                          systemImage: voiceRecorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(voiceRecorder.isRecording ? Color.red : Color.white.opacity(0.2))
+                        .cornerRadius(12)
                 }
 
-                // Capture the reference frame
                 Button(action: captureReference) {
                     Label("Capture", systemImage: "camera.aperture")
                         .font(.headline)
@@ -159,7 +164,6 @@ struct TeacherModeView: View {
                 }
             }
 
-            // Hint about the hardware button
             Text("Tip: press the Camera Control button to capture")
                 .font(.caption2)
                 .foregroundColor(.white.opacity(0.6))
@@ -167,34 +171,40 @@ struct TeacherModeView: View {
         .padding(.bottom, 28)
     }
 
-    // MARK: - Saved reference card
+    // MARK: - Live guidance preview (reference captured)
 
-    private func referenceCard(_ ref: ReferenceFrame) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Reference Captured ✓")
-                .font(.title3).bold()
-                .foregroundColor(.green)
+    private var guidancePanel: some View {
+        VStack(spacing: 10) {
+            if let g = liveGuidance {
+                Text(g.primaryMessage)
+                    .font(.title2).bold()
+                    .foregroundColor(g.isAligned ? .green : .white)
+                    .multilineTextAlignment(.center)
 
-            Group {
-                row("Mode", ref.cameraMode.rawValue)
-                row("Distance", String(format: "%.2f m", ref.state.depthMeters))
-                row("Face", String(format: "x %.2f  y %.2f", ref.state.faceX, ref.state.faceY))
-                row("Tilt", String(format: "roll %+.0f°  pitch %+.0f°",
-                                   ref.state.roll * 180 / .pi,
-                                   ref.state.pitch * 180 / .pi))
-                row("Lum", String(format: "%.0f / 255", ref.state.luminance))
-            }
-            .font(.system(.subheadline, design: .monospaced))
-            .foregroundColor(.white)
+                if let secondary = g.secondaryMessage {
+                    Text(secondary)
+                        .font(.callout)
+                        .foregroundColor(.white.opacity(0.8))
+                }
 
-            if !ref.voiceTranscript.isEmpty {
-                Text("“\(ref.voiceTranscript)”")
-                    .font(.callout).italic()
-                    .foregroundColor(.white.opacity(0.85))
-                    .padding(.top, 2)
+                ProgressView(value: Double(max(0, min(1, g.matchScore))))
+                    .tint(g.isAligned ? .green : .yellow)
+
+                Text("Match \(Int((g.matchScore * 100).rounded()))%")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
             }
 
-            Button("Clear & Re-capture") {
+            if let ref = capturedReference {
+                Text("Reference: \(ref.cameraMode.rawValue) · \(String(format: "%.2fm", ref.state.depthMeters))"
+                     + (ref.voiceTranscript.isEmpty ? "" : " · “\(ref.voiceTranscript)”"))
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.6))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("Clear Reference") {
                 capturedReference = nil
             }
             .font(.headline)
@@ -203,34 +213,22 @@ struct TeacherModeView: View {
             .frame(maxWidth: .infinity)
             .background(Color.yellow)
             .cornerRadius(12)
-            .padding(.top, 4)
         }
-        .padding(20)
-        .background(.black.opacity(0.85))
+        .padding(16)
+        .background(.black.opacity(0.7))
         .cornerRadius(16)
-        .padding(.horizontal, 28)
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).foregroundColor(.white.opacity(0.6))
-            Spacer()
-            Text(value)
-        }
+        .padding(.bottom, 28)
     }
 
     // MARK: - Capture
 
     private func captureReference() {
-        // Snapshot the live state. Orientation comes from MotionManager (in
-        // radians); everything else from the camera's latest published values.
         let state = cameraManager.currentFrameState(
             pitch: Float(motionManager.pitchRad),
             roll:  Float(motionManager.rollRad),
             yaw:   Float(motionManager.yawRad)
         )
 
-        // If still recording, stop so the final transcript is captured.
         if voiceRecorder.isRecording { voiceRecorder.toggle() }
 
         capturedReference = ReferenceFrame(
@@ -240,7 +238,29 @@ struct TeacherModeView: View {
             capturedAt: Date()
         )
 
-        // Confirmation haptic — same feel as a shutter.
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
+
+    // MARK: - Debug self-test (Day 5)
+
+    #if DEBUG
+    // Runs a few hardcoded reference-vs-current scenarios through the C++
+    // engine and prints the results — deterministic verification that the
+    // comparator logic and the full Swift→ObjC++→C++ bridge are correct.
+    private func runGuidanceSelfTest() {
+        let ref = FrameState(pitch: 0, roll: 0, yaw: 0,
+                             faceX: 0.5, faceY: 0.5, depthMeters: 1.0, luminance: 128)
+        func show(_ name: String, _ cur: FrameState) {
+            let g = Guidance.compare(reference: ref, current: cur)
+            print(String(format: "🧪 [%@] score=%.2f aligned=%@ primary='%@' secondary='%@'",
+                         name, g.matchScore, g.isAligned ? "Y" : "N",
+                         g.primaryMessage, g.secondaryMessage ?? ""))
+        }
+        show("perfect",   ref)
+        show("too far",   FrameState(pitch: 0, roll: 0, yaw: 0, faceX: 0.5, faceY: 0.5, depthMeters: 1.5, luminance: 128))
+        show("too close", FrameState(pitch: 0, roll: 0, yaw: 0, faceX: 0.5, faceY: 0.5, depthMeters: 0.6, luminance: 128))
+        show("dark+left", FrameState(pitch: 0, roll: 0, yaw: 0, faceX: 0.35, faceY: 0.5, depthMeters: 1.0, luminance: 90))
+        show("tilted",    FrameState(pitch: 0, roll: 0.2, yaw: 0, faceX: 0.5, faceY: 0.5, depthMeters: 1.0, luminance: 128))
+    }
+    #endif
 }
