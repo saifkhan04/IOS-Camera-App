@@ -1,12 +1,12 @@
 // ShooterModeView.swift
-// The shooter chases the teacher's reference. Every frame we run the C++
-// FrameComparator (live FrameState vs the reference) and render the guidance
-// overlay. When the shooter holds the alignment for 1.5s we auto-capture; the
-// Camera Control button and the on-screen shutter also fire capture manually.
+// Shooter HUD overlay (camera preview + face box live in ContentView). Every
+// render we run the C++ FrameComparator (live FrameState vs the reference) and
+// draw the guidance. Capture is manual by default (shutter / Camera Control);
+// auto-capture (1.5s hold while aligned) is opt-in via Settings.
 //
-// Day 6 scope: the full guidance + capture-trigger experience. The actual photo
-// (AVCapturePhotoOutput + save to Photos) is wired in Day 7 — performCapture()
-// currently flashes and confirms as a placeholder.
+// Day 6 scope: full guidance + capture trigger. Real photo capture
+// (AVCapturePhotoOutput + save to Photos) is Day 7 — performCapture() flashes
+// and shows a brief toast as a placeholder.
 
 import SwiftUI
 
@@ -15,50 +15,52 @@ struct ShooterModeView: View {
     let reference: ReferenceFrame
     @ObservedObject var cameraManager: CameraManager
     @ObservedObject var motionManager: MotionManager
+    let router: CaptureRouter
+    var onOpenSettings: () -> Void
     var onExit: () -> Void
 
-    // Auto-capture state
+    @AppStorage(SettingsKeys.autoCapture) private var autoCapture = false
+
+    // Auto-capture + feedback state
     @State private var holdProgress: CGFloat = 0
     @State private var captureWork: DispatchWorkItem?
-    @State private var didCapture = false
     @State private var showFlash = false
+    @State private var showToast = false
 
     init(reference: ReferenceFrame,
          cameraManager: CameraManager,
          motionManager: MotionManager,
+         router: CaptureRouter,
+         onOpenSettings: @escaping () -> Void,
          onExit: @escaping () -> Void) {
         self.reference = reference
         _cameraManager = ObservedObject(wrappedValue: cameraManager)
         _motionManager = ObservedObject(wrappedValue: motionManager)
+        self.router = router
+        self.onOpenSettings = onOpenSettings
         self.onExit = onExit
     }
 
     var body: some View {
-        // Compute live guidance for this render (motion publishes ~30Hz).
         let guidance = liveGuidance
 
         ZStack {
-            CameraPreviewView(
-                session: cameraManager.session,
-                onCameraControl: performCapture
+            GuidanceOverlayView(
+                guidance: guidance,
+                holdProgress: holdProgress,
+                autoCapturing: autoCapture
             )
-            .ignoresSafeArea()
-
-            FaceBoxOverlay(normRect: cameraManager.faceNormRect)
-
-            GuidanceOverlayView(guidance: guidance, holdProgress: holdProgress)
 
             topBar
             shutterButton
 
+            if showToast { toast }
+
             if showFlash {
-                Color.white.ignoresSafeArea().transition(.opacity)
-            }
-            if didCapture {
-                shotConfirmation
+                Color.white.ignoresSafeArea().transition(.opacity).allowsHitTesting(false)
             }
         }
-        // React to crossing the alignment threshold.
+        .onAppear { router.action = performCapture }
         .onChange(of: guidance.isAligned) { _, aligned in
             handleAlignmentChange(aligned)
         }
@@ -76,21 +78,22 @@ struct ShooterModeView: View {
         return Guidance.compare(reference: reference.state, current: live)
     }
 
-    // MARK: - Top bar (exit + reference reminder)
+    // MARK: - Top bar (exit + settings + reference reminder)
 
     private var topBar: some View {
         VStack {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 12) {
                 Button(action: onExit) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.white.opacity(0.85))
-                        .shadow(radius: 3)
+                        .font(.title2).foregroundColor(.white.opacity(0.85)).shadow(radius: 3)
+                }
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title3).foregroundColor(.white.opacity(0.85)).shadow(radius: 3)
                 }
 
                 Spacer()
 
-                // The teacher's spoken instructions, as a reminder.
                 if !reference.voiceTranscript.isEmpty {
                     Text("“\(reference.voiceTranscript)”")
                         .font(.caption)
@@ -100,7 +103,7 @@ struct ShooterModeView: View {
                         .padding(8)
                         .background(.black.opacity(0.5))
                         .cornerRadius(8)
-                        .frame(maxWidth: 240)
+                        .frame(maxWidth: 220)
                 }
             }
             Spacer()
@@ -128,43 +131,38 @@ struct ShooterModeView: View {
         }
     }
 
-    // MARK: - Shot confirmation (placeholder until Day 7 real capture)
+    // MARK: - Non-blocking toast
 
-    private var shotConfirmation: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 64)).foregroundColor(.green)
-            Text("Shot taken!").font(.title2).bold().foregroundColor(.white)
-            Text("(photo capture + save lands in Day 7)")
-                .font(.caption).foregroundColor(.white.opacity(0.6))
-
-            HStack(spacing: 14) {
-                Button("Shoot again") { resetForAnotherShot() }
-                    .buttonStyle(.borderedProminent)
-                Button("New reference") { onExit() }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
+    private var toast: some View {
+        VStack {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                Text("Shot taken").foregroundColor(.white)
             }
+            .font(.subheadline.bold())
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.black.opacity(0.75))
+            .cornerRadius(20)
+            .padding(.top, 70)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            Spacer()
         }
-        .padding(24)
-        .background(.black.opacity(0.85))
-        .cornerRadius(16)
-        .padding(.horizontal, 36)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Auto-capture logic
 
     private func handleAlignmentChange(_ aligned: Bool) {
-        guard !didCapture else { return }
         if aligned {
-            // Reached alignment — confirm with a haptic and begin the 1.5s hold.
+            // Reached alignment — confirm with a haptic.
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            // Only auto-fire if the user opted in.
+            guard autoCapture else { return }
             withAnimation(.linear(duration: 1.5)) { holdProgress = 1 }
             let work = DispatchWorkItem { performCapture() }
             captureWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
         } else {
-            // Lost alignment before the hold completed — cancel and reset.
             captureWork?.cancel()
             captureWork = nil
             withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
@@ -172,21 +170,22 @@ struct ShooterModeView: View {
     }
 
     private func performCapture() {
-        guard !didCapture else { return }
+        // Debounce: ignore if a capture just happened (flash still showing).
+        guard !showFlash else { return }
         captureWork?.cancel()
         captureWork = nil
-        didCapture = true
+        withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(.easeOut(duration: 0.08)) { showFlash = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.easeIn(duration: 0.15)) { showFlash = false }
         }
-        // TODO Day 7: AVCapturePhotoOutput capture (48MP HEIF / ProRAW) + save to Photos.
-    }
 
-    private func resetForAnotherShot() {
-        didCapture = false
-        holdProgress = 0
+        withAnimation { showToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            withAnimation { showToast = false }
+        }
+        // TODO Day 7: AVCapturePhotoOutput capture (48MP HEIF / ProRAW) + save to Photos.
     }
 }

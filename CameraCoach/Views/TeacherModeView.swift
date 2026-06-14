@@ -1,12 +1,8 @@
 // TeacherModeView.swift
-// The teacher frames the shot, optionally records spoken instructions, and locks
-// it in with the Camera Control button or the on-screen Capture button. On
-// capture it builds a ReferenceFrame and hands it up to ContentView, which
-// switches into Shooter Mode.
-//
-// The camera + motion managers are injected (owned by ContentView) so the
-// session keeps running across the Teacher → Shooter transition. The voice
-// recorder is Teacher-only, so it's owned here.
+// Teacher HUD overlay (the camera preview + face box live in ContentView and
+// stay mounted across mode switches). The teacher frames the shot, optionally
+// records spoken instructions, and locks it in with the Camera Control button or
+// the on-screen Capture button — which builds a ReferenceFrame and hands it up.
 
 import SwiftUI
 
@@ -14,6 +10,8 @@ struct TeacherModeView: View {
 
     @ObservedObject var cameraManager: CameraManager
     @ObservedObject var motionManager: MotionManager
+    let router: CaptureRouter
+    var onOpenSettings: () -> Void
     var onReferenceCaptured: (ReferenceFrame) -> Void
 
     @StateObject private var voiceRecorder = VoiceRecorder()
@@ -21,38 +19,44 @@ struct TeacherModeView: View {
 
     init(cameraManager: CameraManager,
          motionManager: MotionManager,
+         router: CaptureRouter,
+         onOpenSettings: @escaping () -> Void,
          onReferenceCaptured: @escaping (ReferenceFrame) -> Void) {
         _cameraManager = ObservedObject(wrappedValue: cameraManager)
         _motionManager = ObservedObject(wrappedValue: motionManager)
+        self.router = router
+        self.onOpenSettings = onOpenSettings
         self.onReferenceCaptured = onReferenceCaptured
     }
 
     var body: some View {
-        ZStack {
-            CameraPreviewView(
-                session: cameraManager.session,
-                onCameraControl: captureReference
-            )
-            .ignoresSafeArea()
-
-            FaceBoxOverlay(normRect: cameraManager.faceNormRect)
-
-            VStack {
-                topBar
-                Spacer()
-                captureControls
-            }
-            .padding(.horizontal, 16)
+        VStack {
+            topBar
+            Spacer()
+            captureControls
         }
+        .padding(.horizontal, 16)
         .onAppear {
             voiceRecorder.requestPermissions()
+            // Register hardware Camera Control to capture the reference.
+            router.action = captureReference
         }
     }
 
-    // MARK: - Top bar: mode picker + live stats
+    // MARK: - Top bar: settings + mode picker + live stats
 
     private var topBar: some View {
         VStack(spacing: 8) {
+            HStack {
+                Spacer()
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title3)
+                        .foregroundColor(.white.opacity(0.85))
+                        .shadow(radius: 3)
+                }
+            }
+
             Picker("Mode", selection: $selectedMode) {
                 ForEach(CameraMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)

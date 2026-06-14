@@ -1,37 +1,67 @@
 // ContentView.swift
 // Root view and the Teacher ↔ Shooter switcher.
 //
-// The camera + motion managers are owned HERE and passed into both modes, so
-// the capture session keeps running continuously as we switch between framing
-// the reference (Teacher) and chasing it (Shooter) — no session restart, no
-// preview flicker. Mode is driven by whether a ReferenceFrame exists yet.
+// The camera preview is rendered ONCE here and stays mounted across the whole
+// session — only the overlay HUD swaps between Teacher and Shooter. This avoids
+// tearing down / rebuilding the AVCaptureVideoPreviewLayer on every mode change,
+// which is what caused the long delay + black frame when switching.
+//
+// The hardware Camera Control button routes through a CaptureRouter: whichever
+// mode is active registers its capture action, and the single preview's button
+// handler calls router.action() — always the current mode's action.
 
 import SwiftUI
+
+// Lightweight indirection so the persistent preview's Camera Control handler can
+// call whichever capture action the active mode registered. It's a reference
+// type, so the handler closure captured once always reads the latest `action`.
+final class CaptureRouter: ObservableObject {
+    var action: () -> Void = {}
+}
 
 struct ContentView: View {
 
     @StateObject private var cameraManager = CameraManager()
     @StateObject private var motionManager = MotionManager()
+    @StateObject private var router = CaptureRouter()
 
     // nil = Teacher Mode (capturing). non-nil = Shooter Mode (guiding to it).
     @State private var reference: ReferenceFrame?
+    @State private var showSettings = false
 
     var body: some View {
-        Group {
+        ZStack {
+            // Persistent camera preview + face box (never torn down).
+            CameraPreviewView(
+                session: cameraManager.session,
+                onCameraControl: { [router] in router.action() }
+            )
+            .ignoresSafeArea()
+
+            FaceBoxOverlay(normRect: cameraManager.faceNormRect)
+
+            // Swap only the HUD overlay.
             if let reference {
                 ShooterModeView(
                     reference: reference,
                     cameraManager: cameraManager,
                     motionManager: motionManager,
-                    onExit: { withAnimation { self.reference = nil } }
+                    router: router,
+                    onOpenSettings: { showSettings = true },
+                    onExit: { self.reference = nil }
                 )
             } else {
                 TeacherModeView(
                     cameraManager: cameraManager,
                     motionManager: motionManager,
-                    onReferenceCaptured: { ref in withAnimation { reference = ref } }
+                    router: router,
+                    onOpenSettings: { showSettings = true },
+                    onReferenceCaptured: { reference = $0 }
                 )
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .onAppear {
             cameraManager.start()
@@ -62,6 +92,7 @@ struct FaceBoxOverlay: View {
             ctx.stroke(Path(r), with: .color(.green), lineWidth: 2)
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 

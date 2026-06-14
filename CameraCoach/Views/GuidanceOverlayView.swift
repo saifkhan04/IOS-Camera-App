@@ -10,6 +10,7 @@ import SwiftUI
 struct GuidanceOverlayView: View {
     let guidance: GuidanceResult
     let holdProgress: CGFloat   // 0…1, auto-capture countdown while aligned
+    let autoCapturing: Bool     // is auto-capture enabled (drives aligned ring)
 
     var body: some View {
         VStack {
@@ -52,13 +53,16 @@ struct GuidanceOverlayView: View {
         .padding(.horizontal, 24)
     }
 
-    // Aligned → green countdown ring; otherwise → red→green match ring.
+    // Ring states:
+    //   aligned + auto-capture on  → green countdown ring ("hold")
+    //   aligned + auto-capture off → full green ring ("shoot" — tap the shutter)
+    //   not aligned                → red→green match ring (match %)
     private var ring: some View {
         if guidance.isAligned {
             return MatchIndicatorView(
-                progress: Float(holdProgress),
+                progress: autoCapturing ? Float(holdProgress) : 1.0,
                 color: .green,
-                centerText: "hold"
+                centerText: autoCapturing ? "hold" : "shoot"
             )
         } else {
             let pct = Int((guidance.matchScore * 100).rounded())
