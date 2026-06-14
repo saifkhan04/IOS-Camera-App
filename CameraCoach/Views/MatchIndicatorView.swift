@@ -15,14 +15,12 @@ struct MatchIndicatorView: View {
 
     var body: some View {
         ZStack {
-            // Pressable base disc — gives the ring a tappable "shutter" look.
-            Circle()
-                .fill(Color.black.opacity(0.45))
-                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+            // White shutter disc.
+            Circle().fill(Color.white)
 
-            // Track
+            // Track (subtle, visible on white).
             Circle()
-                .stroke(Color.white.opacity(0.2), lineWidth: 8)
+                .stroke(Color.black.opacity(0.12), lineWidth: 8)
 
             // Progress arc — starts at 12 o'clock (rotated −90°).
             Circle()
@@ -31,15 +29,15 @@ struct MatchIndicatorView: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.2), value: progress)
 
-            // Center: value + a camera glyph so it reads as the shutter.
+            // Center: value + a camera glyph, in black on the white disc.
             VStack(spacing: 1) {
                 Text(centerText)
                     .font(.system(.headline, design: .rounded)).bold()
                 Image(systemName: "camera.fill")
                     .font(.caption2)
-                    .opacity(0.85)
+                    .opacity(0.7)
             }
-            .foregroundColor(.white)
+            .foregroundColor(.black)
         }
         .shadow(color: .black.opacity(0.4), radius: 6)
     }
