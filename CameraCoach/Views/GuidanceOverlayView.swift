@@ -59,7 +59,11 @@ struct GuidanceOverlayView: View {
         let progress = (guidance.isAligned && autoCapturing)
             ? Float(holdProgress)
             : guidance.matchScore
-        return MatchIndicatorView(progress: progress, centerText: "\(pct)%")
+        return MatchIndicatorView(
+            progress: progress,
+            centerText: "\(pct)%",
+            showCamera: guidance.isAligned
+        )
     }
 }
 

@@ -11,6 +11,7 @@ import SwiftUI
 struct MatchIndicatorView: View {
     let progress: Float      // 0…1, the trim fraction
     let centerText: String
+    var showCamera: Bool = false   // when aligned: show a camera glyph instead of %
 
     var body: some View {
         ZStack {
@@ -28,10 +29,17 @@ struct MatchIndicatorView: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.2), value: progress)
 
-            // Center: just the match value, in black on the white disc.
-            Text(centerText)
-                .font(.system(.title3, design: .rounded)).bold()
-                .foregroundColor(.black.opacity(0.8))
+            // Center: a camera glyph once aligned (ready to shoot), otherwise
+            // the live match %.
+            if showCamera {
+                Image(systemName: "camera.fill")
+                    .font(.title2)
+                    .foregroundColor(.black.opacity(0.8))
+            } else {
+                Text(centerText)
+                    .font(.system(.title3, design: .rounded)).bold()
+                    .foregroundColor(.black.opacity(0.8))
+            }
         }
         .shadow(color: .black.opacity(0.4), radius: 6)
     }
