@@ -105,3 +105,16 @@ targets:
       - sdk: Speech.framework
       - sdk: Photos.framework
       - sdk: ARKit.framework       # for LiDAR depth data (iPhone 17 Pro)
+
+# Run scheme — IDEPreferLogStreaming works around the "Failed to initialize
+# logging system due to time out" warning so console logs stream reliably
+# (needed to diagnose launch issues). Baked here so xcodegen regen keeps it.
+schemes:
+  CameraCoach:
+    build:
+      targets:
+        CameraCoach: all
+    run:
+      config: Debug
+      environmentVariables:
+        IDEPreferLogStreaming: "YES"
