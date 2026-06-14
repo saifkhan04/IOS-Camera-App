@@ -327,6 +327,37 @@ must be a first-class signal, not implied by a sentinel.
 
 ---
 
+## 19. Long-running capture session froze permanently (no recovery)
+
+**Symptom:** During Shooter testing the preview froze and never came back; on the
+next launch the app showed a black screen and Xcode reported "attach by pid …
+already being debugged." The camera was effectively wedged.
+
+**Root cause (two compounding bugs):**
+1. `start()` called `configure()` **every time** — and `start()` can run more than
+   once (view re-appear, app foreground). Re-running configuration re-adds inputs/
+   outputs to an already-configured `AVCaptureSession`, which can wedge it.
+2. **No recovery.** A heavy LiDAR + 30fps + C++ + Vision pipeline can be
+   interrupted (thermal, resource pressure, Control Center, a call) or hit a
+   runtime error. With no handling, the session stops and never resumes — a
+   permanent freeze — and a wedged session/process can carry into the next launch
+   as a black screen (cleared only by restarting the device).
+
+**Fix:**
+- `configure()` runs exactly once (`isConfigured` guard); `start()` is idempotent
+  and only ensures the session is running.
+- Observe `AVCaptureSessionRuntimeError` and `…InterruptionEnded` and restart;
+  log `…WasInterrupted`.
+- Restart camera/motion on `scenePhase == .active` (foreground recovery).
+
+**Takeaway:** A long-running hardware session is not fire-and-forget. Make
+configuration idempotent and treat interruptions/runtime errors as expected
+events with explicit recovery — otherwise a single transient interruption is a
+permanent failure. (Tooling note: a stuck/zombie debugged instance shows "attach
+by pid … already being debugged" + black screen — restart the device to clear it.)
+
+---
+
 ## Cross-cutting lessons
 
 - **Verify directions/signs on device, not at a desk.** A temporary on-screen
