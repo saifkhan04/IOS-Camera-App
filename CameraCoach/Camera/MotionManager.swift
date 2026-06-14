@@ -95,8 +95,10 @@ class MotionManager: ObservableObject {
 
             // roll: rotation about the viewing axis (leveling). Tilt right => +.
             self.rollRad = atan2(g.x, -g.y)
-            // pitch: how far the camera aims up/down. Aim up => + (verified).
-            self.pitchRad = atan2(-g.z, sqrt(g.x * g.x + g.y * g.y))
+            // pitch: how far the camera aims up/down. Aim up => + .
+            // (Gravity's z sign required the +g.z form — verified on device;
+            //  the -g.z form read backwards and re-inverted the guidance.)
+            self.pitchRad = atan2(g.z, sqrt(g.x * g.x + g.y * g.y))
             // yaw can't come from gravity and the comparator doesn't use it.
             self.yawRad = motion.attitude.yaw
 
