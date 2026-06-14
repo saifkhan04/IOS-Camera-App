@@ -99,12 +99,15 @@ GuidanceResult FrameComparator::compare(const FrameState& ref, const FrameState&
             problems.push_back({5, "Tilt camera right", ArrowDir::None, norm(std::fabs(dRoll), 0.5f)});
     }
 
-    // Priority 6 — Pitch (forward/back angle).
+    // Priority 6 — Pitch (forward/back aim).
+    // Verified on device: pitch INCREASES as the camera aims up. So
+    // dPitch > 0 => currently aimed HIGHER than the reference => correct by
+    // angling the camera down. (Was inverted before this fix.)
     if (std::fabs(dPitch) > TILT_THRESHOLD_RAD) {
-        if (dPitch > 0)  // angled down more than reference
-            problems.push_back({6, "Angle camera up", ArrowDir::None, norm(std::fabs(dPitch), 0.5f)});
-        else
+        if (dPitch > 0)  // aimed higher than reference
             problems.push_back({6, "Angle camera down", ArrowDir::None, norm(std::fabs(dPitch), 0.5f)});
+        else             // aimed lower than reference
+            problems.push_back({6, "Angle camera up", ArrowDir::None, norm(std::fabs(dPitch), 0.5f)});
     }
 
     // --- Match score: weighted blend of per-axis normalised error ---

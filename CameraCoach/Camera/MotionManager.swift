@@ -15,8 +15,9 @@
 // The result is a CMAttitude object with three Euler angles:
 //
 //   PITCH — rotation around the X axis (horizontal axis through the phone)
-//           Positive = top of phone tilting toward you (camera angling down)
-//           Negative = top tilting away (camera angling up toward sky)
+//           Positive = top of phone tilting toward you (camera angling UP
+//                      toward the sky) — VERIFIED on device 2026-06-14
+//           Negative = top tilting away (camera angling down toward ground)
 //
 //   ROLL  — rotation around the Y axis (vertical axis through the phone)
 //           Positive = phone tilting to the right
