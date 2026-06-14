@@ -304,6 +304,29 @@ that; silence the dependent symptom so you don't give contradictory advice.
 
 ---
 
+## 18. False match on an empty scene — a score is only as good as its inputs
+
+**Symptom:** Pointing the shooter at a blank wall (no person in frame) still
+reported ~80% match, as if the shot were nearly nailed.
+
+**Root cause:** The comparator is purely geometric — orientation, luminance, and
+face position/depth. When no face is detected, faceX/faceY fall back to frame
+**centre (0.5, 0.5)** and depth to **0**. Those sentinel defaults look like
+plausible measurements, so if the tilt and lighting happened to be similar, the
+empty scene scored high. The match had no notion that the subject was absent.
+
+**Fix:** Added `FrameState.hasFace` (set from whether a face was detected this
+frame). In the guidance layer, when the reference has a subject but the live
+frame doesn't, return "No subject detected — point the camera at your subject"
+(score 0, not aligned) instead of running the geometric compare.
+
+**Takeaway:** A confidence score is only as trustworthy as its inputs. Absent
+measurements that silently default to *plausible* values create false
+confidence — distinguish "measured 0.5" from "no measurement." Validity/presence
+must be a first-class signal, not implied by a sentinel.
+
+---
+
 ## Cross-cutting lessons
 
 - **Verify directions/signs on device, not at a desk.** A temporary on-screen
