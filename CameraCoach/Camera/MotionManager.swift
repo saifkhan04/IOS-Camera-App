@@ -79,19 +79,31 @@ class MotionManager: ObservableObject {
         ) { [weak self] motion, error in
             guard let self, let motion else { return }
 
-            let att = motion.attitude
+            // Use the GRAVITY vector, not CMAttitude's Euler angles.
+            //
+            // Euler pitch/roll/yaw are coupled and hit a gimbal-lock
+            // singularity exactly when the phone is held UPRIGHT for a photo
+            // (attitude pitch ≈ 90°). At that singularity roll swings wildly and
+            // pitch changes bleed into roll — which made the guidance shout
+            // "tilt" constantly and mis-handle aim up/down.
+            //
+            // Gravity-derived pitch/roll are DECOUPLED and stable in the upright
+            // shooting pose. Their only singularity is when the phone lies flat
+            // (gravity along z), which we never shoot in. Gravity is a ~unit
+            // vector in the device frame: x = right, y = top, z = out of screen.
+            let g = motion.gravity
 
-            // Store raw radians for use in ReferenceFrame / comparator
-            self.pitchRad = att.pitch
-            self.rollRad  = att.roll
-            self.yawRad   = att.yaw
+            // roll: rotation about the viewing axis (leveling). Tilt right => +.
+            self.rollRad = atan2(g.x, -g.y)
+            // pitch: how far the camera aims up/down. Aim up => + (verified).
+            self.pitchRad = atan2(-g.z, sqrt(g.x * g.x + g.y * g.y))
+            // yaw can't come from gravity and the comparator doesn't use it.
+            self.yawRad = motion.attitude.yaw
 
-            // Convert to degrees for display (× 180 / π)
-            // specifier "%+.1f" adds a + sign for positive values,
-            // making it easy to see direction at a glance (+12.3° vs -5.6°)
-            self.pitch = att.pitch * 180 / .pi
-            self.roll  = att.roll  * 180 / .pi
-            self.yaw   = att.yaw   * 180 / .pi
+            // Degrees for display. "%+.1f" shows the sign for direction at a glance.
+            self.pitch = self.pitchRad * 180 / .pi
+            self.roll  = self.rollRad  * 180 / .pi
+            self.yaw   = self.yawRad   * 180 / .pi
         }
 
         print("✅ MotionManager: Device motion started at 30Hz")
