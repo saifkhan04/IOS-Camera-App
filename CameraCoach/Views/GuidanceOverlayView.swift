@@ -44,7 +44,7 @@ struct GuidanceOverlayView: View {
                 Button(action: onCapture) {
                     ring.frame(width: 96, height: 96)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ShutterPressStyle())
                 .padding(.top, 4)
             }
             .padding(.bottom, 40)
@@ -123,6 +123,18 @@ private struct GuidanceArrow: View {
         case .right: return CGSize(width:  amp, height: 0)
         case .none:  return .zero
         }
+    }
+}
+
+// MARK: - Shutter press style
+
+// Gives the ring-as-shutter a tactile press: scales down and dims briefly.
+struct ShutterPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

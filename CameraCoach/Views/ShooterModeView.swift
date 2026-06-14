@@ -83,13 +83,25 @@ struct ShooterModeView: View {
     private var topBar: some View {
         VStack {
             HStack(alignment: .top, spacing: 12) {
+                // Clear, labeled exit back to Teacher Mode for a new reference.
                 Button(action: onExit) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2).foregroundColor(.white.opacity(0.85)).shadow(radius: 3)
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                        Text("New Reference")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .shadow(radius: 3)
                 }
+
                 Button(action: onOpenSettings) {
                     Image(systemName: "gearshape.fill")
-                        .font(.title3).foregroundColor(.white.opacity(0.85)).shadow(radius: 3)
+                        .font(.title3).foregroundColor(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: Circle())
+                        .shadow(radius: 3)
                 }
 
                 Spacer()

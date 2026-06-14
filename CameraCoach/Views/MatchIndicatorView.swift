@@ -15,6 +15,11 @@ struct MatchIndicatorView: View {
 
     var body: some View {
         ZStack {
+            // Pressable base disc — gives the ring a tappable "shutter" look.
+            Circle()
+                .fill(Color.black.opacity(0.45))
+                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+
             // Track
             Circle()
                 .stroke(Color.white.opacity(0.2), lineWidth: 8)
@@ -26,10 +31,17 @@ struct MatchIndicatorView: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.2), value: progress)
 
-            Text(centerText)
-                .font(.system(.headline, design: .rounded)).bold()
-                .foregroundColor(.white)
+            // Center: value + a camera glyph so it reads as the shutter.
+            VStack(spacing: 1) {
+                Text(centerText)
+                    .font(.system(.headline, design: .rounded)).bold()
+                Image(systemName: "camera.fill")
+                    .font(.caption2)
+                    .opacity(0.85)
+            }
+            .foregroundColor(.white)
         }
+        .shadow(color: .black.opacity(0.4), radius: 6)
     }
 
     // Smooth red→green hue ramp for a match score. hue 0 = red, 0.33 = green.
