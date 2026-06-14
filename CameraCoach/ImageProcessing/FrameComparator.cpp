@@ -51,6 +51,13 @@ GuidanceResult FrameComparator::compare(const FrameState& ref, const FrameState&
 
     std::vector<Problem> problems;
 
+    // Aim (pitch) and vertical framing (faceY) are physically coupled: tilting
+    // the camera up/down moves the subject down/up in the frame. When the aim
+    // is off we fix THAT first — correcting the angle also restores the induced
+    // framing error — and suppress the faceY message so we don't tell the user
+    // to "raise the camera" when the real problem is the camera angle.
+    const bool pitchOff = std::fabs(dPitch) > TILT_THRESHOLD_RAD;
+
     // Priority 1 — Lighting. If the light is wrong, everything else is wrong.
     if (std::fabs(dLum) > LUMINANCE_THRESHOLD) {
         if (dLum < 0)
@@ -69,45 +76,44 @@ GuidanceResult FrameComparator::compare(const FrameState& ref, const FrameState&
         problems.push_back({2, msg, ArrowDir::None, norm(std::fabs(dDepth), 1.0f)});
     }
 
-    // Priority 3 — Vertical framing (faceY).
-    // dFaceY < 0 => the face sits HIGHER in the frame than the reference.
-    // To bring it back down you raise/aim the camera UP (the subject then
-    // moves down in the frame). So: too high => "Raise the camera".
-    if (std::fabs(dFaceY) > POSITION_THRESHOLD) {
-        if (dFaceY < 0)  // face too high in frame
-            problems.push_back({3, "Raise the camera", ArrowDir::Up, norm(std::fabs(dFaceY), 0.3f)});
-        else             // face too low in frame
-            problems.push_back({3, "Lower the camera", ArrowDir::Down, norm(std::fabs(dFaceY), 0.3f)});
+    // Priority 3 — Pitch (forward/back aim).
+    // Verified on device: pitch INCREASES as the camera aims up. So
+    // dPitch > 0 => currently aimed HIGHER than the reference => angle down.
+    // Comes before vertical framing because of the coupling noted above.
+    if (pitchOff) {
+        if (dPitch > 0)  // aimed higher than reference
+            problems.push_back({3, "Angle camera down", ArrowDir::Down, norm(std::fabs(dPitch), 0.5f)});
+        else             // aimed lower than reference
+            problems.push_back({3, "Angle camera up", ArrowDir::Up, norm(std::fabs(dPitch), 0.5f)});
     }
 
-    // Priority 4 — Horizontal framing (faceX).
+    // Priority 4 — Vertical framing (faceY). Only when the aim is already
+    // correct (otherwise this error is just a symptom of the pitch error above).
+    // dFaceY < 0 => face sits HIGHER in the frame => raise the camera.
+    if (!pitchOff && std::fabs(dFaceY) > POSITION_THRESHOLD) {
+        if (dFaceY < 0)  // face too high in frame
+            problems.push_back({4, "Raise the camera", ArrowDir::Up, norm(std::fabs(dFaceY), 0.3f)});
+        else             // face too low in frame
+            problems.push_back({4, "Lower the camera", ArrowDir::Down, norm(std::fabs(dFaceY), 0.3f)});
+    }
+
+    // Priority 5 — Horizontal framing (faceX).
     // dFaceX > 0 => the face sits to the RIGHT of the reference. Moving/aiming
     // the camera to the right shifts the subject left in the frame, back toward
     // target. So: too far right => "Move camera right".
     if (std::fabs(dFaceX) > POSITION_THRESHOLD) {
         if (dFaceX > 0)  // face too far right
-            problems.push_back({4, "Move camera right", ArrowDir::Right, norm(std::fabs(dFaceX), 0.3f)});
+            problems.push_back({5, "Move camera right", ArrowDir::Right, norm(std::fabs(dFaceX), 0.3f)});
         else             // face too far left
-            problems.push_back({4, "Move camera left", ArrowDir::Left, norm(std::fabs(dFaceX), 0.3f)});
+            problems.push_back({5, "Move camera left", ArrowDir::Left, norm(std::fabs(dFaceX), 0.3f)});
     }
 
-    // Priority 5 — Roll (left/right tilt — the crooked-horizon axis).
+    // Priority 6 — Roll (left/right tilt — the crooked-horizon axis).
     if (std::fabs(dRoll) > TILT_THRESHOLD_RAD) {
         if (dRoll > 0)
-            problems.push_back({5, "Tilt camera left", ArrowDir::None, norm(std::fabs(dRoll), 0.5f)});
+            problems.push_back({6, "Tilt camera left", ArrowDir::None, norm(std::fabs(dRoll), 0.5f)});
         else
-            problems.push_back({5, "Tilt camera right", ArrowDir::None, norm(std::fabs(dRoll), 0.5f)});
-    }
-
-    // Priority 6 — Pitch (forward/back aim).
-    // Verified on device: pitch INCREASES as the camera aims up. So
-    // dPitch > 0 => currently aimed HIGHER than the reference => correct by
-    // angling the camera down. (Was inverted before this fix.)
-    if (std::fabs(dPitch) > TILT_THRESHOLD_RAD) {
-        if (dPitch > 0)  // aimed higher than reference
-            problems.push_back({6, "Angle camera down", ArrowDir::None, norm(std::fabs(dPitch), 0.5f)});
-        else             // aimed lower than reference
-            problems.push_back({6, "Angle camera up", ArrowDir::None, norm(std::fabs(dPitch), 0.5f)});
+            problems.push_back({6, "Tilt camera right", ArrowDir::None, norm(std::fabs(dRoll), 0.5f)});
     }
 
     // --- Match score: weighted blend of per-axis normalised error ---
