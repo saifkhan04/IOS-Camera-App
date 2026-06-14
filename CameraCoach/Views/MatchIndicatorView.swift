@@ -19,24 +19,19 @@ struct MatchIndicatorView: View {
 
             // Track (subtle, visible on white).
             Circle()
-                .stroke(Color.black.opacity(0.12), lineWidth: 8)
+                .stroke(Color.black.opacity(0.1), lineWidth: 6)
 
-            // Progress arc — a black loader filling as the match improves.
+            // Progress arc — a soft charcoal loader filling as the match improves.
             Circle()
                 .trim(from: 0, to: CGFloat(max(0, min(1, progress))))
-                .stroke(Color.black, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .stroke(Color.black.opacity(0.6), style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.2), value: progress)
 
-            // Center: value + a camera glyph, in black on the white disc.
-            VStack(spacing: 1) {
-                Text(centerText)
-                    .font(.system(.headline, design: .rounded)).bold()
-                Image(systemName: "camera.fill")
-                    .font(.caption2)
-                    .opacity(0.7)
-            }
-            .foregroundColor(.black)
+            // Center: just the match value, in black on the white disc.
+            Text(centerText)
+                .font(.system(.title3, design: .rounded)).bold()
+                .foregroundColor(.black.opacity(0.8))
         }
         .shadow(color: .black.opacity(0.4), radius: 6)
     }
