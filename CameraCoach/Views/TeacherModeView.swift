@@ -110,38 +110,9 @@ struct TeacherModeView: View {
             .padding(8)
             .background(.black.opacity(0.55))
             .cornerRadius(10)
-
-            #if DEBUG
-            debugOrientation
-            #endif
         }
         .padding(.top, 8)
     }
-
-    #if DEBUG
-    // Temporary direction-verification readout. Aim the camera up at the
-    // ceiling and watch whether `pitch` goes + or −; aim down and confirm it
-    // flips. Same for roll (tilt left/right). Once a reference is captured the
-    // Δ lines show current-minus-reference, so you can see exactly which sign
-    // the comparator is acting on. Remove once directions are confirmed.
-    private var debugOrientation: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(String(format: "pitch %+.1f°   roll %+.1f°   yaw %+.1f°",
-                        motionManager.pitch, motionManager.roll, motionManager.yaw))
-            if let ref = capturedReference {
-                let dPitch = motionManager.pitch - Double(ref.state.pitch) * 180 / .pi
-                let dRoll  = motionManager.roll  - Double(ref.state.roll)  * 180 / .pi
-                Text(String(format: "Δpitch %+.1f°   Δroll %+.1f°", dPitch, dRoll))
-                    .foregroundColor(.cyan)
-            }
-        }
-        .font(.system(size: 11, design: .monospaced))
-        .foregroundColor(.yellow)
-        .padding(6)
-        .background(.black.opacity(0.6))
-        .cornerRadius(8)
-    }
-    #endif
 
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(spacing: 1) {
