@@ -99,4 +99,4 @@ xcodegen generate
 
 **LiDAR depth sampling** — `AVCaptureDataOutputSynchronizer` bundles matched video + depth frame pairs. Depth at the face center is sampled over a 5×5 patch (not a single pixel) to handle NaN returns from specular surfaces like hair.
 
-**Guidance priority order** — the C++ comparator checks axes in this order: lighting → distance → vertical position → horizontal position → roll → pitch. Fix the most important axis first.
+**Guidance priority order** — the C++ comparator checks axes in this order: lighting → distance → camera angle (pitch) → vertical position → horizontal position → roll (leveling). Fix the most important axis first. Aim (pitch) is checked before vertical framing because tilting the camera also moves the subject in the frame — correcting the angle fixes both, so the framing message is suppressed while the aim is off.

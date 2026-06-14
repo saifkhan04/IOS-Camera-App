@@ -32,7 +32,7 @@ Podfile.lock
 # Instruments
 *.trace
 
-# AI / planning files
+# AI / planning files (CLAUDE.md stays at repo root so Claude Code auto-loads it)
 CLAUDE.md
-MVP_Plan.md
-AI_ROADMAP.md
+Docs/MVP_Plan.md
+Docs/AI_ROADMAP.md
