@@ -36,6 +36,10 @@ class CameraManager: NSObject, ObservableObject {
     private var synchronizer: AVCaptureDataOutputSynchronizer?
     private var depthConnected = false
 
+    // Guards against re-running configure() (which would add duplicate inputs/
+    // outputs and wedge the session). The session is configured exactly once.
+    private var isConfigured = false
+
     // MARK: - Private: Processing
 
     private let faceDetector = FaceDetector()
@@ -50,16 +54,62 @@ class CameraManager: NSObject, ObservableObject {
 
     // MARK: - Lifecycle
 
+    override init() {
+        super.init()
+        // Recover the session automatically. A heavy LiDAR + 30fps pipeline can
+        // be interrupted (resource pressure, thermal, a phone call, control
+        // center) or hit a runtime error; without these the preview freezes and
+        // never comes back — and a wedged session can carry into the next launch.
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(handleRuntimeError(_:)),
+                       name: .AVCaptureSessionRuntimeError, object: session)
+        nc.addObserver(self, selector: #selector(handleInterruptionEnded(_:)),
+                       name: .AVCaptureSessionInterruptionEnded, object: session)
+        nc.addObserver(self, selector: #selector(handleWasInterrupted(_:)),
+                       name: .AVCaptureSessionWasInterrupted, object: session)
+    }
+
+    // Idempotent: configures once, then ensures the session is running. Safe to
+    // call repeatedly (e.g. every time the view appears or the app foregrounds).
     func start() {
         sessionQueue.async { [weak self] in
-            self?.configure()
-            self?.session.startRunning()
+            guard let self else { return }
+            if !self.isConfigured {
+                self.configure()
+                self.isConfigured = true
+            }
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
         }
     }
 
     func stop() {
         sessionQueue.async { [weak self] in
             self?.session.stopRunning()
+        }
+    }
+
+    // MARK: - Session recovery
+
+    @objc private func handleRuntimeError(_ note: Notification) {
+        let err = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+        print("⚠️ CameraManager: session runtime error \(String(describing: err)) — restarting")
+        sessionQueue.async { [weak self] in
+            guard let self, !self.session.isRunning else { return }
+            self.session.startRunning()
+        }
+    }
+
+    @objc private func handleWasInterrupted(_ note: Notification) {
+        print("⚠️ CameraManager: session interrupted \(note.userInfo ?? [:])")
+    }
+
+    @objc private func handleInterruptionEnded(_ note: Notification) {
+        print("✅ CameraManager: interruption ended — resuming")
+        sessionQueue.async { [weak self] in
+            guard let self, !self.session.isRunning else { return }
+            self.session.startRunning()
         }
     }
 

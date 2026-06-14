@@ -21,6 +21,8 @@ final class CaptureRouter: ObservableObject {
 
 struct ContentView: View {
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @StateObject private var cameraManager = CameraManager()
     @StateObject private var motionManager = MotionManager()
     @StateObject private var router = CaptureRouter()
@@ -69,6 +71,19 @@ struct ContentView: View {
         }
         .onDisappear {
             motionManager.stop()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Resume the camera/motion when returning to the foreground; pause
+            // motion when leaving. start() is idempotent so this is safe.
+            switch phase {
+            case .active:
+                cameraManager.start()
+                motionManager.start()
+            case .background:
+                motionManager.stop()
+            default:
+                break
+            }
         }
     }
 }
