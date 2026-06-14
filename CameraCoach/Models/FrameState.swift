@@ -24,4 +24,9 @@ struct FrameState {
 
     // Average scene brightness from the C++ LuminanceAnalyzer, 0…255.
     var luminance: Float
+
+    // Whether a face was actually detected this frame. When false, faceX/faceY
+    // and depthMeters are placeholders, not real measurements — the guidance
+    // layer uses this to avoid falsely "matching" empty scenes.
+    var hasFace: Bool = false
 }

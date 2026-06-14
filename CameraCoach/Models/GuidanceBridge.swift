@@ -50,7 +50,22 @@ extension GuidanceResult {
 // Convenience: compare two Swift FrameStates straight through the C++ engine.
 enum Guidance {
     static func compare(reference: FrameState, current: FrameState) -> GuidanceResult {
-        GuidanceResult(
+        // Subject-presence gate: the geometric comparator only sees orientation,
+        // luminance, and face position/depth. With no face detected, face/depth
+        // fall back to centre/zero, which can falsely "match" an empty scene.
+        // If the reference has a subject but the live frame doesn't, surface
+        // that instead of a misleading score.
+        if reference.hasFace && !current.hasFace {
+            return GuidanceResult(
+                matchScore: 0,
+                primaryMessage: "No subject detected",
+                secondaryMessage: "Point the camera at your subject",
+                arrowDirection: .none,
+                arrowMagnitude: 0,
+                isAligned: false
+            )
+        }
+        return GuidanceResult(
             ImageProcessor.compareReference(reference.bridged, current: current.bridged)
         )
     }

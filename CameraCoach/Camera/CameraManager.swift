@@ -77,7 +77,8 @@ class CameraManager: NSObject, ObservableObject {
             faceX: Float(faceNormRect?.midX ?? 0.5),
             faceY: Float(faceNormRect?.midY ?? 0.5),
             depthMeters: subjectDistance ?? 0,
-            luminance: brightness ?? 0
+            luminance: brightness ?? 0,
+            hasFace: faceNormRect != nil
         )
     }
 
