@@ -60,14 +60,12 @@ struct GuidanceOverlayView: View {
         if guidance.isAligned {
             return MatchIndicatorView(
                 progress: autoCapturing ? Float(holdProgress) : 1.0,
-                color: .green,
                 centerText: autoCapturing ? "hold" : "shoot"
             )
         } else {
             let pct = Int((guidance.matchScore * 100).rounded())
             return MatchIndicatorView(
                 progress: guidance.matchScore,
-                color: MatchIndicatorView.matchColor(guidance.matchScore),
                 centerText: "\(pct)%"
             )
         }

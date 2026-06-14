@@ -10,7 +10,6 @@ import SwiftUI
 
 struct MatchIndicatorView: View {
     let progress: Float      // 0…1, the trim fraction
-    let color: Color
     let centerText: String
 
     var body: some View {
@@ -22,10 +21,10 @@ struct MatchIndicatorView: View {
             Circle()
                 .stroke(Color.black.opacity(0.12), lineWidth: 8)
 
-            // Progress arc — starts at 12 o'clock (rotated −90°).
+            // Progress arc — a black loader filling as the match improves.
             Circle()
                 .trim(from: 0, to: CGFloat(max(0, min(1, progress))))
-                .stroke(color, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .stroke(Color.black, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.2), value: progress)
 
@@ -40,11 +39,5 @@ struct MatchIndicatorView: View {
             .foregroundColor(.black)
         }
         .shadow(color: .black.opacity(0.4), radius: 6)
-    }
-
-    // Smooth red→green hue ramp for a match score. hue 0 = red, 0.33 = green.
-    static func matchColor(_ score: Float) -> Color {
-        let s = Double(max(0, min(1, score)))
-        return Color(hue: s * 0.33, saturation: 0.9, brightness: 0.95)
     }
 }
