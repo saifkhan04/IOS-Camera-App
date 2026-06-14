@@ -11,18 +11,15 @@ struct GuidanceOverlayView: View {
     let guidance: GuidanceResult
     let holdProgress: CGFloat   // 0…1, auto-capture countdown while aligned
     let autoCapturing: Bool     // is auto-capture enabled (drives aligned ring)
+    var onCapture: () -> Void   // tapping the ring captures
 
     var body: some View {
         VStack {
             Spacer()
 
-            // Center: arrow while correcting, big check when aligned.
-            if guidance.isAligned {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 96, weight: .bold))
-                    .foregroundColor(.green)
-                    .transition(.scale.combined(with: .opacity))
-            } else {
+            // Directional arrow while correcting. When aligned the center is
+            // kept clear so the subject stays fully visible.
+            if !guidance.isAligned {
                 GuidanceArrow(direction: guidance.arrowDirection,
                               magnitude: guidance.arrowMagnitude)
                     .frame(height: 110)
@@ -30,7 +27,7 @@ struct GuidanceOverlayView: View {
 
             Spacer()
 
-            // Bottom: message + ring.
+            // Bottom: message + the ring, which doubles as the shutter button.
             VStack(spacing: 10) {
                 Text(guidance.primaryMessage)
                     .font(.title).bold()
@@ -44,9 +41,11 @@ struct GuidanceOverlayView: View {
                         .foregroundColor(.white.opacity(0.6))
                 }
 
-                ring
-                    .frame(width: 92, height: 92)
-                    .padding(.top, 4)
+                Button(action: onCapture) {
+                    ring.frame(width: 96, height: 96)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
             .padding(.bottom, 40)
         }

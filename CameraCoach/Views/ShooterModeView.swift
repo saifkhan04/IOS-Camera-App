@@ -48,11 +48,11 @@ struct ShooterModeView: View {
             GuidanceOverlayView(
                 guidance: guidance,
                 holdProgress: holdProgress,
-                autoCapturing: autoCapture
+                autoCapturing: autoCapture,
+                onCapture: performCapture
             )
 
             topBar
-            shutterButton
 
             if showToast { toast }
 
@@ -110,25 +110,6 @@ struct ShooterModeView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-    }
-
-    // MARK: - Manual shutter
-
-    private var shutterButton: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                Button(action: performCapture) {
-                    ZStack {
-                        Circle().fill(.white).frame(width: 64, height: 64)
-                        Circle().stroke(.white, lineWidth: 3).frame(width: 76, height: 76)
-                    }
-                }
-                .padding(.trailing, 24)
-                .padding(.bottom, 36)
-            }
-        }
     }
 
     // MARK: - Non-blocking toast
