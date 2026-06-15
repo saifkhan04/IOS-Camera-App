@@ -29,7 +29,7 @@ CameraCoach is an iPhone 17 Pro app that lets one person frame the perfect shot 
 |---|---|
 | LiDAR Scanner | Real metric depth in meters — "Step 0.4m closer" is exact |
 | Camera Control button | Physical trigger for reference capture and final shot |
-| 48MP main sensor | Full-resolution capture via `AVCapturePhotoOutput` |
+| Pro camera sensor | Quality-prioritized HEIF capture via `AVCapturePhotoOutput` |
 | A19 Pro Neural Engine | Available for future Core ML features |
 
 No fallback code for non-LiDAR or non-Camera-Control devices. Single-target keeps the codebase clean.
@@ -48,7 +48,7 @@ No fallback code for non-LiDAR or non-Camera-Control devices. Single-target keep
 | Camera Control button | `AVCaptureEventInteraction` (iOS 18+) |
 | Voice input | `SFSpeechRecognizer` (on-device) |
 | Image processing core | C++ via Objective-C++ (`.mm`) bridge |
-| Photo capture | `AVCapturePhotoOutput` — 48MP HEIF / ProRAW |
+| Photo capture | `AVCapturePhotoOutput` — quality-prioritized HEIF |
 
 ---
 
@@ -66,24 +66,26 @@ CameraCoach/
 
 ---
 
-## Building
+## Getting Started
 
-This project uses [xcodegen](https://github.com/yonaskolb/XcodeGen). `project.yml` is the source of truth — the `.xcodeproj` is not committed.
+This project uses [xcodegen](https://github.com/yonaskolb/XcodeGen). `project.yml` is the source of truth — the `.xcodeproj` is **not committed**, so you generate it after cloning.
 
 **Requirements:**
 - macOS 15+
-- Xcode 16+
-- iPhone 17 Pro (Simulator lacks LiDAR and Camera Control)
+- Xcode 16+ (full Xcode, not just Command Line Tools)
+- iPhone 17 Pro (the Simulator lacks LiDAR and the Camera Control button)
 
-**First-time setup:**
+**Clone and run:**
 
 ```bash
-brew install xcodegen
-xcodegen generate
+git clone https://github.com/saifkhan04/IOS-Camera-App.git
+cd "IOS-Camera-App"
+brew install xcodegen          # once, if not already installed
+xcodegen generate              # creates CameraCoach.xcodeproj from project.yml
 open CameraCoach.xcodeproj
 ```
 
-Then in Xcode: **Signing & Capabilities → Team** → set your Apple Developer account, then **⌘R**.
+Then in Xcode: **Signing & Capabilities → Team** → set **your own** Apple Developer account (the `DEVELOPMENT_TEAM` baked into `project.yml` is the original author's), connect your iPhone 17 Pro, and **⌘R**.
 
 **After pulling changes that touch `project.yml`:**
 
