@@ -1,16 +1,9 @@
 // CameraPreviewView.swift
 // Bridges AVFoundation's camera preview into SwiftUI.
 //
-// SwiftUI has no built-in camera preview widget. The preview is rendered
-// by AVCaptureVideoPreviewLayer, which is a CALayer subclass — part of
-// UIKit's older layer-based drawing system. To use it in SwiftUI, we
-// wrap a UIView in a UIViewRepresentable.
-//
-// UIViewRepresentable is the standard SwiftUI protocol for wrapping
-// any UIKit view. You implement two required methods:
-//   makeUIView   — called once to CREATE the UIKit view
-//   updateUIView — called whenever SwiftUI state changes and the
-//                  UIKit view might need updating
+// SwiftUI has no built-in camera preview widget. The preview is rendered by
+// AVCaptureVideoPreviewLayer (a CALayer subclass), so we wrap a UIView that's
+// backed by that layer in a UIViewRepresentable.
 
 import SwiftUI
 import AVFoundation
@@ -19,11 +12,11 @@ struct CameraPreviewView: UIViewRepresentable {
 
     let session: AVCaptureSession
 
-    // Day 2: ContentView captures the layer reference so it can convert
-    // normalised face coordinates to screen points for the overlay.
+    // ContentView captures the layer reference so it can convert normalised
+    // face coordinates to screen points for the overlay.
     var onLayerReady: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
 
-    // Day 4: fired when the physical Camera Control button is pressed.
+    // Fired when the physical Camera Control button is pressed.
     var onCameraControl: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewUIView {

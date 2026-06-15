@@ -14,7 +14,6 @@
 // LuminanceAnalyzer.cpp) keeping them testable in isolation.
 
 #import "ImageProcessor.h"
-#include "MathBridge.hpp"
 #include "HistogramEngine.hpp"
 #include "LuminanceAnalyzer.hpp"
 #include "FrameComparator.hpp"
@@ -47,14 +46,7 @@
 
 @implementation ImageProcessor
 
-// ── Day 1: Bridge verification ────────────────────────────────────────
-+ (NSInteger)add:(NSInteger)a to:(NSInteger)b {
-    return static_cast<NSInteger>(
-        MathBridge::add(static_cast<int>(a), static_cast<int>(b))
-    );
-}
-
-// ── Day 3: Live luminance + histogram ─────────────────────────────────
+// ── Live luminance + histogram ────────────────────────────────────────
 + (nullable FrameStats *)analyzeFrame:(CVPixelBufferRef)pixelBuffer {
     if (pixelBuffer == nullptr) { return nil; }
 
@@ -123,7 +115,7 @@
     return result;
 }
 
-// ── Day 5: Frame comparison / guidance ────────────────────────────────
+// ── Frame comparison / guidance ───────────────────────────────────────
 + (CCGuidanceResult *)compareReference:(CCFrameState)reference
                                current:(CCFrameState)current {
     // Translate the C structs into C++ structs (field-for-field, same layout).

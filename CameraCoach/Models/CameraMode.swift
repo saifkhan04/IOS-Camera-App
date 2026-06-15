@@ -1,9 +1,9 @@
 // CameraMode.swift
 // The capture mode the teacher selects and the shooter must match.
 //
-// In the MVP these are mostly a label/reminder carried on the ReferenceFrame
-// (see CLAUDE.md — portrait depth blur is post-capture only, not a live
-// preview behaviour). They become functional capture settings in Day 7.
+// This is a label/reminder carried on the ReferenceFrame, not a capture-pipeline
+// switch: portrait depth blur is post-capture only, not a live preview
+// behaviour, so the modes don't change how frames are captured.
 
 import Foundation
 

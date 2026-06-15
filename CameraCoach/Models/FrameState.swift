@@ -1,11 +1,11 @@
 // FrameState.swift
 // A single instantaneous snapshot of everything the guidance engine cares
 // about. The teacher captures one of these as the reference; the shooter's
-// live camera produces a fresh one every frame. Day 5's C++ FrameComparator
-// takes two FrameStates (reference + current) and computes the deltas.
+// live camera produces a fresh one every frame. The C++ FrameComparator takes
+// two FrameStates (reference + current) and computes the deltas.
 //
-// All numeric fields are Float to line up with the C++ struct we'll bridge
-// to in Day 5 — no Double↔float conversion at the boundary.
+// All numeric fields are Float to line up with the bridged C++ struct — no
+// Double↔float conversion at the boundary.
 
 import Foundation
 

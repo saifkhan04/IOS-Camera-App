@@ -31,6 +31,7 @@
 
 import CoreMotion
 import Combine
+import os
 
 class MotionManager: ObservableObject {
 
@@ -57,7 +58,7 @@ class MotionManager: ObservableObject {
 
     func start() {
         guard manager.isDeviceMotionAvailable else {
-            print("⚠️ MotionManager: Device motion not available")
+            Logger.motion.warning("Device motion not available")
             return
         }
 
@@ -108,7 +109,7 @@ class MotionManager: ObservableObject {
             self.yaw   = self.yawRad   * 180 / .pi
         }
 
-        print("✅ MotionManager: Device motion started at 30Hz")
+        Logger.motion.debug("Device motion started at 30Hz")
     }
 
     func stop() {

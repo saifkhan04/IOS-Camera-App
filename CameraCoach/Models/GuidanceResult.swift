@@ -1,9 +1,6 @@
 // GuidanceResult.swift
-// The output of the comparison: what to tell the shooter right now.
-//
-// Day 5 fills this in from the C++ FrameComparator. We define it here in Day 4
-// so the data model is complete and the Shooter UI (Day 6) has a type to bind
-// to. For now it's only constructed by previews/placeholders.
+// The output of the comparison: what to tell the shooter right now. Produced by
+// the C++ FrameComparator (via the bridge) and consumed by the Shooter HUD.
 
 import Foundation
 

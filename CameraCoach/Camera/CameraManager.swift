@@ -1,7 +1,7 @@
 // CameraManager.swift
 // Owns and configures the AVCaptureSession.
 //
-// Key Day 2 insight about LiDAR depth on iPhone Pro:
+// LiDAR depth on iPhone Pro:
 //   The individual back cameras (wide, ultra-wide, telephoto) report zero
 //   supportedDepthDataFormats — they don't carry depth on their own.
 //   The depth-capable device is .builtInLiDARDepthCamera, a virtual device
@@ -14,6 +14,7 @@
 
 import AVFoundation
 import Combine
+import os
 import UIKit
 
 class CameraManager: NSObject, ObservableObject {
@@ -25,20 +26,20 @@ class CameraManager: NSObject, ObservableObject {
     @Published var faceNormRect: CGRect?      // portrait, top-left origin, 0–1
     @Published var subjectDistance: Float?    // metres, from LiDAR
 
-    // Day 3: live image statistics computed in C++ from the Y plane.
+    // Live image statistics computed in C++ from the Y plane.
     @Published var brightness: Float?         // mean luma, 0–255
     @Published var contrast: Float?           // std dev of luma
     @Published var histogram: [Float]?        // 256 normalised bins, 0–1
 
-    // Day 7: the most recently saved capture this session. The thumbnail drives
+    // The most recently saved capture this session. The thumbnail drives
     // the corner gallery button; the full encoded bytes back the in-app
     // full-screen review. Persist across mode switches (manager is hoisted in
     // ContentView). Data is the small HEIF bytes, decoded on demand by the viewer.
     @Published var lastCapturedThumbnail: UIImage?
     @Published var lastCapturedImageData: Data?
 
-    // Day 8 (story 1): a recent upright snapshot of the live preview, refreshed a
-    // few times a second. Teacher Mode grabs this at lock time to store on the
+    // A recent upright snapshot of the live preview, refreshed a few times a
+    // second. Teacher Mode grabs this at lock time to store on the
     // ReferenceFrame (the picture the shooter recreates).
     @Published var latestVideoImage: UIImage?
 
@@ -50,7 +51,7 @@ class CameraManager: NSObject, ObservableObject {
     private var synchronizer: AVCaptureDataOutputSynchronizer?
     private var depthConnected = false
 
-    // Day 7: in-flight photo captures, keyed by AVCapturePhotoSettings.uniqueID.
+    // In-flight photo captures, keyed by AVCapturePhotoSettings.uniqueID.
     // AVCapturePhotoOutput only holds its delegate weakly, so we must retain the
     // per-shot processor here until its capture completes. Mutated only on
     // sessionQueue.
@@ -117,7 +118,7 @@ class CameraManager: NSObject, ObservableObject {
 
     @objc private func handleRuntimeError(_ note: Notification) {
         let err = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
-        print("⚠️ CameraManager: session runtime error \(String(describing: err)) — restarting")
+        Logger.camera.error("Session runtime error \(String(describing: err), privacy: .public); restarting")
         sessionQueue.async { [weak self] in
             guard let self, !self.session.isRunning else { return }
             self.session.startRunning()
@@ -125,11 +126,11 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     @objc private func handleWasInterrupted(_ note: Notification) {
-        print("⚠️ CameraManager: session interrupted \(note.userInfo ?? [:])")
+        Logger.camera.warning("Session interrupted: \(note.userInfo ?? [:], privacy: .public)")
     }
 
     @objc private func handleInterruptionEnded(_ note: Notification) {
-        print("✅ CameraManager: interruption ended — resuming")
+        Logger.camera.info("Interruption ended; resuming")
         sessionQueue.async { [weak self] in
             guard let self, !self.session.isRunning else { return }
             self.session.startRunning()
@@ -155,7 +156,7 @@ class CameraManager: NSObject, ObservableObject {
         )
     }
 
-    // MARK: - Photo capture (Day 7)
+    // MARK: - Photo capture
 
     enum PhotoCaptureError: LocalizedError {
         case sessionNotReady
@@ -245,10 +246,11 @@ class CameraManager: NSObject, ObservableObject {
         session.commitConfiguration()
 
         depthConnected = depthOutput.connection(with: .depthData) != nil
-        print(depthConnected
-            ? "✅ CameraManager: Depth connection confirmed"
-            : "⚠️ CameraManager: No depth connection"
-        )
+        if depthConnected {
+            Logger.camera.debug("Depth connection confirmed")
+        } else {
+            Logger.camera.warning("No depth connection")
+        }
 
         let syncOutputs: [AVCaptureOutput] = depthConnected
             ? [videoOutput, depthOutput]
@@ -273,10 +275,10 @@ class CameraManager: NSObject, ObservableObject {
                   session.canAddInput(input)
             else { continue }
             session.addInput(input)
-            print("✅ CameraManager: Camera input added (\(type.rawValue))")
+            Logger.camera.debug("Camera input added (\(type.rawValue, privacy: .public))")
             return device
         }
-        print("⚠️ CameraManager: Could not add any camera input")
+        Logger.camera.error("Could not add any camera input")
         return nil
     }
 
@@ -287,35 +289,35 @@ class CameraManager: NSObject, ObservableObject {
         ]
         videoOutput.alwaysDiscardsLateVideoFrames = true
         guard session.canAddOutput(videoOutput) else {
-            print("⚠️ CameraManager: Cannot add video output")
+            Logger.camera.error("Cannot add video output")
             return
         }
         session.addOutput(videoOutput)
-        print("✅ CameraManager: Video output added")
+        Logger.camera.debug("Video output added")
     }
 
     private func addDepthOutput() {
         depthOutput.isFilteringEnabled = true
         guard session.canAddOutput(depthOutput) else {
-            print("⚠️ CameraManager: Cannot add depth output")
+            Logger.camera.error("Cannot add depth output")
             return
         }
         session.addOutput(depthOutput)
-        print("✅ CameraManager: Depth output added")
+        Logger.camera.debug("Depth output added")
     }
 
-    // Day 7: still-photo capture alongside the live video+depth streams.
+    // Still-photo capture alongside the live video+depth streams.
     // maxPhotoQualityPrioritization MUST be set while configuring (before the
     // session runs) — it's what unlocks Apple's full quality ISP pipeline at
     // capture time. The per-shot setting can then ask for .quality.
     private func addPhotoOutput() {
         guard session.canAddOutput(photoOutput) else {
-            print("⚠️ CameraManager: Cannot add photo output")
+            Logger.camera.error("Cannot add photo output")
             return
         }
         session.addOutput(photoOutput)
         photoOutput.maxPhotoQualityPrioritization = .quality
-        print("✅ CameraManager: Photo output added")
+        Logger.camera.debug("Photo output added")
     }
 
     // Cap the photo output at the largest still the ACTIVE format supports.
@@ -331,8 +333,7 @@ class CameraManager: NSObject, ObservableObject {
         if let best {
             photoOutput.maxPhotoDimensions = best
             let mp = Double(best.width) * Double(best.height) / 1_000_000
-            print(String(format: "✅ CameraManager: Photo dimensions → %d×%d (%.1f MP)",
-                         best.width, best.height, mp))
+            Logger.camera.debug("Photo dimensions \(best.width)×\(best.height) (\(mp, format: .fixed(precision: 1)) MP)")
         }
     }
 
@@ -347,7 +348,7 @@ class CameraManager: NSObject, ObservableObject {
             CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
         }) else {
-            print("⚠️ CameraManager: No depth-capable formats on this device")
+            Logger.camera.warning("No depth-capable formats on this device")
             return
         }
         let bestDepth = best.supportedDepthDataFormats.max {
@@ -360,9 +361,9 @@ class CameraManager: NSObject, ObservableObject {
             if let bestDepth { device.activeDepthDataFormat = bestDepth }
             device.unlockForConfiguration()
             let d = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-            print("✅ CameraManager: Format set → \(d.width)×\(d.height) (depth-capable)")
+            Logger.camera.debug("Format set \(d.width)×\(d.height) (depth-capable)")
         } catch {
-            print("⚠️ CameraManager: Could not lock device for format selection: \(error)")
+            Logger.camera.error("Could not lock device for format selection: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
@@ -384,7 +385,7 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
 
         let faceRect = faceDetector.detectFace(in: pixelBuffer)
 
-        // Day 3: run the C++ luminance + histogram pipeline on this frame.
+        // Run the C++ luminance + histogram pipeline on this frame.
         // analyzeFrame locks the buffer, reads the Y plane, and returns stats.
         let stats = ImageProcessor.analyzeFrame(pixelBuffer)
         let frameBrightness = stats?.averageBrightness
@@ -410,8 +411,8 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
             )
         }
 
-        // Story 1: refresh the preview snapshot a few times a second (every 6th
-        // frame ≈ 5fps). Converting every frame would waste CPU; this is only a
+        // Refresh the preview snapshot a few times a second (every 6th frame
+        // ≈ 5fps). Converting every frame would waste CPU; this is only a
         // "latest frame" cache for the reference, not a live feed.
         var previewImage: UIImage? = nil
         if frameCount % 6 == 0 {

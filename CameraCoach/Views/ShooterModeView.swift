@@ -4,11 +4,12 @@
 // draw the guidance. Capture is manual by default (shutter / Camera Control);
 // auto-capture (1.5s hold while aligned) is opt-in via Settings.
 //
-// Day 6 scope: full guidance + capture trigger. Real photo capture
-// (AVCapturePhotoOutput + save to Photos) is Day 7 — performCapture() flashes
-// and shows a brief toast as a placeholder.
+// performCapture() takes a real still via AVCapturePhotoOutput and saves it to
+// Photos (see CameraManager.capturePhoto), driving the screen flash on exposure
+// and a success/failure toast on completion.
 
 import SwiftUI
+import os
 
 struct ShooterModeView: View {
 
@@ -349,7 +350,7 @@ struct ShooterModeView: View {
                 case .success:
                     flashToast("Saved to Photos", success: true)
                 case .failure(let error):
-                    print("⚠️ ShooterMode: capture failed — \(error.localizedDescription)")
+                    Logger.capture.error("Capture failed: \(error.localizedDescription, privacy: .public)")
                     flashToast("Couldn’t save photo", success: false)
                 }
             }
