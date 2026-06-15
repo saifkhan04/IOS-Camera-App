@@ -5,13 +5,18 @@
 // The shooter's whole job is to drive their live FrameState until it matches
 // this reference's `state`.
 
-import Foundation
+import UIKit
 
 struct ReferenceFrame: Identifiable {
     let id = UUID()
 
     // The measured target — orientation, face position, distance, lighting.
     var state: FrameState
+
+    // A snapshot of the framing the teacher locked in — the picture the shooter
+    // is trying to recreate. Drives the target thumbnail and the ghost overlay.
+    // Optional: a reference can exist without an image (e.g. capture failed).
+    var image: UIImage?
 
     // The teacher's selected capture mode (carried through to the shooter).
     var cameraMode: CameraMode

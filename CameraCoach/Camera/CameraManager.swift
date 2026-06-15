@@ -14,6 +14,7 @@
 
 import AVFoundation
 import Combine
+import UIKit
 
 class CameraManager: NSObject, ObservableObject {
 
@@ -29,12 +30,31 @@ class CameraManager: NSObject, ObservableObject {
     @Published var contrast: Float?           // std dev of luma
     @Published var histogram: [Float]?        // 256 normalised bins, 0–1
 
+    // Day 7: the most recently saved capture this session. The thumbnail drives
+    // the corner gallery button; the full encoded bytes back the in-app
+    // full-screen review. Persist across mode switches (manager is hoisted in
+    // ContentView). Data is the small HEIF bytes, decoded on demand by the viewer.
+    @Published var lastCapturedThumbnail: UIImage?
+    @Published var lastCapturedImageData: Data?
+
+    // Day 8 (story 1): a recent upright snapshot of the live preview, refreshed a
+    // few times a second. Teacher Mode grabs this at lock time to store on the
+    // ReferenceFrame (the picture the shooter recreates).
+    @Published var latestVideoImage: UIImage?
+
     // MARK: - Private: Outputs
 
     private let videoOutput = AVCaptureVideoDataOutput()
     private let depthOutput = AVCaptureDepthDataOutput()
+    private let photoOutput = AVCapturePhotoOutput()
     private var synchronizer: AVCaptureDataOutputSynchronizer?
     private var depthConnected = false
+
+    // Day 7: in-flight photo captures, keyed by AVCapturePhotoSettings.uniqueID.
+    // AVCapturePhotoOutput only holds its delegate weakly, so we must retain the
+    // per-shot processor here until its capture completes. Mutated only on
+    // sessionQueue.
+    private var photoProcessors: [Int64: PhotoCaptureProcessor] = [:]
 
     // Guards against re-running configure() (which would add duplicate inputs/
     // outputs and wedge the session). The session is configured exactly once.
@@ -44,6 +64,9 @@ class CameraManager: NSObject, ObservableObject {
 
     private let faceDetector = FaceDetector()
     private var frameCount = 0
+
+    // Reused across frames — CIContext creation is expensive, so make one.
+    private let ciContext = CIContext(options: nil)
 
     // MARK: - Private: Threading
 
@@ -132,6 +155,74 @@ class CameraManager: NSObject, ObservableObject {
         )
     }
 
+    // MARK: - Photo capture (Day 7)
+
+    enum PhotoCaptureError: LocalizedError {
+        case sessionNotReady
+        var errorDescription: String? { "The camera isn't ready to capture." }
+    }
+
+    // Captures one still and saves it to Photos. onWillCapture fires when the
+    // sensor exposes (drive the screen flash there); completion fires on the
+    // main queue with the save result. Runs on sessionQueue so it's serialised
+    // against configuration and the processor registry is touched on one queue.
+    func capturePhoto(onWillCapture: @escaping () -> Void,
+                      completion: @escaping (Result<Void, Error>) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.session.isRunning,
+                  self.session.outputs.contains(self.photoOutput)
+            else {
+                DispatchQueue.main.async { completion(.failure(PhotoCaptureError.sessionNotReady)) }
+                return
+            }
+
+            // The preview is portrait-locked; match the saved image to it. 90°
+            // is portrait for the back camera's native sensor orientation.
+            if let conn = self.photoOutput.connection(with: .video),
+               conn.isVideoRotationAngleSupported(90) {
+                conn.videoRotationAngle = 90
+            }
+
+            let settings = self.makePhotoSettings()
+            let id = settings.uniqueID
+
+            let processor = PhotoCaptureProcessor(
+                onWillCapture: onWillCapture,
+                onSaved: { [weak self] image, data in
+                    // already on main
+                    self?.lastCapturedThumbnail = image
+                    self?.lastCapturedImageData = data
+                },
+                onFinish: { [weak self] result in
+                    completion(result)
+                    // Release the processor once its capture is done.
+                    self?.sessionQueue.async { self?.photoProcessors[id] = nil }
+                }
+            )
+            self.photoProcessors[id] = processor
+            self.photoOutput.capturePhoto(with: settings, delegate: processor)
+        }
+    }
+
+    // HEIF (HEVC) when available — same codec the native Camera app uses, ~half
+    // the size of JPEG at equal quality. Quality prioritization lets the ISP
+    // take its time (multi-frame fusion, noise reduction) for the final shot.
+    private func makePhotoSettings() -> AVCapturePhotoSettings {
+        let settings: AVCapturePhotoSettings
+        if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+        } else {
+            settings = AVCapturePhotoSettings()
+        }
+        settings.photoQualityPrioritization = .quality
+        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        // We use an on-screen white flash, not the LED — and the LiDAR depth
+        // camera doesn't pair with the flash anyway.
+        settings.flashMode = .off
+        return settings
+    }
+
     private func configure() {
         // Don't let the capture session seize the app's audio session — the
         // voice recorder (SFSpeechRecognizer) needs to own it while recording.
@@ -147,7 +238,9 @@ class CameraManager: NSObject, ObservableObject {
 
         addVideoOutput()
         addDepthOutput()
+        addPhotoOutput()
         selectDepthCapableFormat(for: device)
+        configurePhotoOutput(for: device)
 
         session.commitConfiguration()
 
@@ -209,6 +302,38 @@ class CameraManager: NSObject, ObservableObject {
         }
         session.addOutput(depthOutput)
         print("✅ CameraManager: Depth output added")
+    }
+
+    // Day 7: still-photo capture alongside the live video+depth streams.
+    // maxPhotoQualityPrioritization MUST be set while configuring (before the
+    // session runs) — it's what unlocks Apple's full quality ISP pipeline at
+    // capture time. The per-shot setting can then ask for .quality.
+    private func addPhotoOutput() {
+        guard session.canAddOutput(photoOutput) else {
+            print("⚠️ CameraManager: Cannot add photo output")
+            return
+        }
+        session.addOutput(photoOutput)
+        photoOutput.maxPhotoQualityPrioritization = .quality
+        print("✅ CameraManager: Photo output added")
+    }
+
+    // Cap the photo output at the largest still the ACTIVE format supports.
+    // We deliberately keep the depth-capable active format (live guidance needs
+    // it), so this is the best resolution available without tearing the session
+    // down. supportedMaxPhotoDimensions is tied to activeFormat, so this must
+    // run AFTER selectDepthCapableFormat.
+    private func configurePhotoOutput(for device: AVCaptureDevice) {
+        guard session.outputs.contains(photoOutput) else { return }
+        let best = device.activeFormat.supportedMaxPhotoDimensions.max {
+            Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height)
+        }
+        if let best {
+            photoOutput.maxPhotoDimensions = best
+            let mp = Double(best.width) * Double(best.height) / 1_000_000
+            print(String(format: "✅ CameraManager: Photo dimensions → %d×%d (%.1f MP)",
+                         best.width, best.height, mp))
+        }
     }
 
     // Pick the highest-resolution format on the device that also supports
@@ -285,14 +410,39 @@ extension CameraManager: AVCaptureDataOutputSynchronizerDelegate {
             )
         }
 
+        // Story 1: refresh the preview snapshot a few times a second (every 6th
+        // frame ≈ 5fps). Converting every frame would waste CPU; this is only a
+        // "latest frame" cache for the reference, not a live feed.
+        var previewImage: UIImage? = nil
+        if frameCount % 6 == 0 {
+            previewImage = makePreviewImage(from: pixelBuffer)
+        }
+
         DispatchQueue.main.async { [weak self] in
             self?.faceNormRect     = faceRect
             self?.subjectDistance  = distance
             self?.brightness       = frameBrightness
             self?.contrast         = frameContrast
             self?.histogram        = frameHistogram
+            if let previewImage { self?.latestVideoImage = previewImage }
         }
         frameCount += 1
+    }
+
+    // Convert the current sensor buffer into an upright, downscaled UIImage.
+    // The buffer is landscape sensor orientation; .right (EXIF 6) rotates it to
+    // the portrait the preview shows — matching FaceDetector's orientation so the
+    // snapshot lines up with the live scene and the face box.
+    private func makePreviewImage(from pixelBuffer: CVPixelBuffer,
+                                  maxDimension: CGFloat = 1280) -> UIImage? {
+        var ci = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = ci.extent
+        let scale = Swift.min(1, maxDimension / Swift.max(extent.width, extent.height))
+        if scale < 1 {
+            ci = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+        guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return nil }
+        return UIImage(cgImage: cg, scale: 1, orientation: .right)
     }
 
     // MARK: - Depth sampling

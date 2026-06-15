@@ -153,6 +153,7 @@ struct TeacherModeView: View {
 
         let reference = ReferenceFrame(
             state: state,
+            image: cameraManager.latestVideoImage,   // the framing to recreate
             cameraMode: selectedMode,
             voiceTranscript: voiceRecorder.transcript,
             capturedAt: Date()

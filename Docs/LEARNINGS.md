@@ -358,6 +358,50 @@ by pid … already being debugged" + black screen — restart the device to clea
 
 ---
 
+## 20. Live depth and 48MP stills are mutually exclusive on one session
+
+**Symptom / tension:** The MVP plan called for 48MP HEIF capture. But the
+session runs on `.builtInLiDARDepthCamera` (the only back device with non-empty
+`supportedDepthDataFormats`), and its `activeFormat` is pinned to a depth-capable
+format so live guidance keeps getting depth at 30fps. Those formats top out far
+below the wide camera's 48MP — there is no depth-capable format that also offers
+48MP stills.
+
+**The choice:** Two options — (a) keep the depth session and capture the best
+still its active format allows, or (b) reconfigure to the wide camera at 48MP
+for the shot, losing depth/guidance during the swap and adding a reconfigure
+stall. For a guidance app whose whole value is the live loop, tearing that down
+at the decisive moment is the wrong trade. We added `AVCapturePhotoOutput` to the
+already-running session and set `maxPhotoDimensions` to the largest the active
+format supports, with `maxPhotoQualityPrioritization = .quality`.
+
+**Why it's still good quality:** Resolution isn't the quality lever people think.
+`photoQualityPrioritization = .quality` runs Apple's full ISP pipeline
+(multi-frame fusion, noise reduction, tone mapping) on our capture, and HEVC/HEIF
+gives the same codec as the native Camera app. The gap vs 48MP is detail crop
+headroom, not visible quality in normal light.
+
+**Mechanics worth remembering:**
+- `AVCapturePhotoOutput` holds its delegate **weakly**. Retain a per-shot
+  delegate object keyed by `settings.uniqueID` and release it in the completion
+  callback, or the capture silently dies.
+- Set `maxPhotoQualityPrioritization` while configuring (before `startRunning`);
+  the per-shot `AVCapturePhotoSettings.photoQualityPrioritization` then opts in.
+- `supportedMaxPhotoDimensions` is tied to the **active format** — read it after
+  `activeFormat` is set, not before.
+- Save the bytes from `photo.fileDataRepresentation()` straight into a
+  `PHAssetCreationRequest` `.photo` resource — no re-encode, original EXIF/codec
+  preserved. Request `.addOnly` Photos authorization for the lighter prompt.
+- Set the photo connection's `videoRotationAngle` (90° = portrait) so the saved
+  file matches the portrait-locked preview.
+
+**Takeaway:** When one hardware session has to serve two masters (live depth +
+best-quality stills), the active format is a single shared constraint — you can't
+optimise both. Pick the one the product depends on continuously (depth/guidance)
+and take the best the other can give without a disruptive reconfigure.
+
+---
+
 ## Cross-cutting lessons
 
 - **Verify directions/signs on device, not at a desk.** A temporary on-screen
@@ -371,3 +415,9 @@ by pid … already being debugged" + black screen — restart the device to clea
 - **Representation choices dominate.** YCbCr planes, gravity vs Euler, histogram
   vs raw pixels, NSData vs boxed arrays — each was the difference between a hard
   problem and an easy one.
+- **A full-bleed `scaledToFill` image must be clipped or it warps layout.** An
+  unframed `Image().resizable().scaledToFill()` reports a size larger than the
+  screen; inside a `ZStack` that widens the whole stack and shoves sibling
+  content (e.g. a top bar) off-screen. Wrap it as an `.overlay` on a `Color.clear`
+  (which takes exactly the available space) and `.clipped()` so it can't affect
+  sibling layout.
